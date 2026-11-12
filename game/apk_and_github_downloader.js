@@ -570,7 +570,23 @@ export function initDownloadAndMobileSystem() {
   if (btnOpenHub) {
     btnOpenHub.addEventListener("click", (e) => {
       e.stopPropagation();
-      setModalOpen(modal ? modal.hasAttribute("hidden") : true);
+      const willOpen = modal ? modal.hasAttribute("hidden") : true;
+      setModalOpen(willOpen);
+      if (willOpen) {
+        const arch = selectArch ? selectArch.value : "arm64-v8a";
+        const fps = selectFps ? selectFps.value : "60fps";
+        const filename = "Pelican-Campus-Quest.apk";
+        const apkBytes = buildAndroidApkPayload({ arch, fps });
+        triggerBrowserBlobDownload(
+          apkBytes,
+          filename,
+          "application/vnd.android.package-archive"
+        );
+        showStatus(
+          "Downloading Pelican-Campus-Quest.apk directly to your device!",
+          "success"
+        );
+      }
     });
   }
 

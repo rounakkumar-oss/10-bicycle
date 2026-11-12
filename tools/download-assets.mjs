@@ -330,6 +330,10 @@ async function ensurePwaIconsAndDownloadBundles() {
     },
   ];
   const apkBuf = createZipArchiveBuffer(apkEntries);
+  const rootReleasesDir = path.join(ROOT_DIR, 'releases');
+  await fs.mkdir(rootReleasesDir, { recursive: true });
+  await fs.writeFile(path.join(rootReleasesDir, 'Pelican-Campus-Quest.apk'), apkBuf);
+  await fs.writeFile(path.join(pubDir, 'Pelican-Campus-Quest.apk'), apkBuf);
   await fs.writeFile(path.join(dlDir, 'Pelican-Campus-Quest-v1.0.0-mobile.apk'), apkBuf);
 
   const githubZipEntries = [

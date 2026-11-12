@@ -1,0 +1,12 @@
+{
+  "appId": "com.pelican.campusquest",
+  "appName": "Pelican Campus Quest",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

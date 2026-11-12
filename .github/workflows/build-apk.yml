@@ -1,0 +1,74 @@
+name: Build & Publish Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build-android-apk:
+    name: Build Pelican Campus Quest Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Java JDK 21 (Required for Capacitor Android Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Project Dependencies & Build WebGL Game
+        run: |
+          npm install
+          npm run build
+
+      - name: Package into Native Android APK via Capacitor & Gradle
+        run: |
+          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../Pelican-Campus-Quest.apk
+
+      - name: Upload APK to GitHub Actions Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pelican-Campus-Quest-APK
+          path: Pelican-Campus-Quest.apk
+          if-no-files-found: error
+
+      - name: Publish APK to GitHub Releases (Direct Download)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: "Pelican Campus Quest v1.0.0 — Direct Android APK"
+          body: |
+            ## 📲 Direct Android APK Download (Mobile)
+            Click **`Pelican-Campus-Quest.apk`** below under **Assets** to download and install the game directly on your Android phone!
+          draft: false
+          prerelease: false
+          files: |
+            Pelican-Campus-Quest.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
