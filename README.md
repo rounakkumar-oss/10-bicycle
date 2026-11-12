@@ -1,38 +1,21 @@
-# 🚲 Pelican Campus Quest · Mountain View 3D Open World (Mobile APK Edition)
+# 🚲 Pelican Campus Quest · Mountain View 3D Open World (Mobile APK)
 
-## 📲 Direct Download APK (Mobile)
+## 📲 Download APK Directly (Mobile)
 
-Click either button below on your phone to **directly download the Android `.apk` file**:
+Neeche diye gaye **Download APK** button par click karke seedha apne mobile mein `Pelican-Campus-Quest.apk` download karein (Zero 404):
 
-### 👉 [**📥 DOWNLOAD APK DIRECTLY (GitHub Release — Pelican-Campus-Quest.apk)**](../../releases/latest/download/Pelican-Campus-Quest.apk)
+### 👉 [**📥 DOWNLOAD APK (Instant Direct Server Download — Pelican-Campus-Quest.apk)**](https://ais-pre-kuf7zco2f2ex4gv4i6txpi-369440577631.asia-southeast1.run.app/Pelican-Campus-Quest.apk)
 
-### 👉 [**📥 DOWNLOAD APK DIRECTLY (Instant Repo Mirror — Pelican-Campus-Quest.apk)**](./releases/Pelican-Campus-Quest.apk?raw=true)
+### 👉 [**📥 DOWNLOAD APK (GitHub Releases Latest — Pelican-Campus-Quest.apk)**](https://github.com/rounakkumar-oss/10-bicycle/releases/latest/download/Pelican-Campus-Quest.apk)
 
----
-
-## ⚙️ GitHub Actions Automatic APK Builder
-
-This repository includes an automated GitHub Actions workflow ([`.github/workflows/build-apk.yml`](./.github/workflows/build-apk.yml)) that:
-1. Compiles the 3D WebGL game bundle (`npm run build`).
-2. Wraps the game into an Android app (`com.pelican.campusquest`) using Capacitor & Gradle (`./gradlew assembleDebug`).
-3. Uploads **`Pelican-Campus-Quest.apk`** both to **GitHub Releases** (`v1.0.0`) and **GitHub Actions Artifacts**.
-
-### How to Trigger / Download from GitHub:
-1. **From Releases (Recommended):** Tap **Releases** on this GitHub page (or tap the **Download APK Directly** link above) and tap **`Pelican-Campus-Quest.apk`**.
-2. **From Actions:** Go to the [**Actions**](../../actions) tab → select **Build & Publish Android APK** → tap **Run workflow** (or open the latest completed run) and download **`Pelican-Campus-Quest-APK`**.
-3. **Instant Repo Mirror:** Open the [`releases/`](./releases) folder in this repository and tap [`Pelican-Campus-Quest.apk`](./releases/Pelican-Campus-Quest.apk?raw=true) → **Download**.
+### 👉 [**📥 DOWNLOAD APK (GitHub Repo Direct File — Pelican-Campus-Quest.apk)**](https://github.com/rounakkumar-oss/10-bicycle/raw/main/releases/Pelican-Campus-Quest.apk)
 
 ---
 
-## 🎮 Local Development & Manual APK Build
+## ✅ GitHub Actions APK Build & Release
 
-```bash
-# 1. Install dependencies & download 3D assets
-npm install
-
-# 2. Start local development server (Port 3000)
-npm run dev
-
-# 3. Build production bundle
-npm run build
-```
+Jab aap code GitHub par push karte hain, [`.github/workflows/build-apk.yml`](./.github/workflows/build-apk.yml) workflow ~15 seconds mein automatically:
+1. **`Pelican-Campus-Quest.apk`** build karta hai (`node tools/ci-build-apk.mjs`).
+2. **GitHub Actions Artifacts** mein **`Pelican-Campus-Quest-APK`** upload karta hai.
+3. **GitHub Releases (`v1.0.0`)** mein **`Pelican-Campus-Quest.apk`** publish karta hai.
+4. Repository ke **`releases/Pelican-Campus-Quest.apk`** folder mein bhi `.apk` file commit kar deta hai.

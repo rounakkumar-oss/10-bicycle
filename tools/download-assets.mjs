@@ -329,9 +329,16 @@ async function ensurePwaIconsAndDownloadBundles() {
       ),
     },
   ];
+  for (const rel of ['index.html', 'main.js', 'core.js', 'ui.js', 'contract.js', 'styles.css', 'inline_fonts.css']) {
+    try {
+      const data = await fs.readFile(path.join(ROOT_DIR, rel));
+      apkEntries.push({ name: `assets/www/${rel}`, data });
+    } catch (_) {}
+  }
   const apkBuf = createZipArchiveBuffer(apkEntries);
   const rootReleasesDir = path.join(ROOT_DIR, 'releases');
   await fs.mkdir(rootReleasesDir, { recursive: true });
+  await fs.writeFile(path.join(ROOT_DIR, 'Pelican-Campus-Quest.apk'), apkBuf);
   await fs.writeFile(path.join(rootReleasesDir, 'Pelican-Campus-Quest.apk'), apkBuf);
   await fs.writeFile(path.join(pubDir, 'Pelican-Campus-Quest.apk'), apkBuf);
   await fs.writeFile(path.join(dlDir, 'Pelican-Campus-Quest-v1.0.0-mobile.apk'), apkBuf);
