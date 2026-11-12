@@ -1,9 +1,8 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -181,6 +180,33 @@ function findAndroidSdkTools() {
   return { sdkRoot, btPath, androidJar, aapt2, d8, zipalign, apksigner };
 }
 
+function addFileToZipRoot(zipFilePath, entryName, fileDataBuf) {
+  // Prefer system zip -j -u if available, otherwise use python3 zipfile module
+  try {
+    const tmpDir = path.dirname(zipFilePath);
+    const tmpEntryPath = path.join(tmpDir, entryName);
+    if (tmpEntryPath !== fileDataBuf) {
+      fs.writeFileSync(tmpEntryPath, fileDataBuf);
+    }
+    execFileSync('zip', ['-j', '-u', zipFilePath, tmpEntryPath], { stdio: 'inherit' });
+    return;
+  } catch (_) {
+    const tmpEntryPath = path.join(path.dirname(zipFilePath), entryName);
+    fs.writeFileSync(tmpEntryPath, fileDataBuf);
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1], "a", zipfile.ZIP_DEFLATED); z.write(sys.argv[2], sys.argv[3]); z.close()',
+        zipFilePath,
+        tmpEntryPath,
+        entryName,
+      ],
+      { stdio: 'inherit' }
+    );
+  }
+}
+
 function buildNativeSignedApkWithAndroidSdk(sdk) {
   console.log('[ci-build-apk] Found Android SDK at:', sdk.sdkRoot);
   console.log('[ci-build-apk] Using build-tools:', sdk.btPath);
@@ -216,8 +242,8 @@ function buildNativeSignedApkWithAndroidSdk(sdk) {
   const manifestXml = `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.pelican.campusquest"
-    android:versionCode="200"
-    android:versionName="2.0.0">
+    android:versionCode="201"
+    android:versionName="2.0.1">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -244,27 +270,25 @@ function buildNativeSignedApkWithAndroidSdk(sdk) {
   const manifestPath = path.join(workDir, 'AndroidManifest.xml');
   fs.writeFileSync(manifestPath, manifestXml, 'utf-8');
 
-  // 4. Write MainActivity.java serving assets/www/ over https://appassets.androidplatform.net/
-  const mainActivityJava = `package com.pelican.campusquest;
+  // 4. Write MainActivity.java and AssetWebViewClient.java (separate top-level class so zero $1 inner class names!)
+  const assetClientJava = `package com.pelican.campusquest;
 
-import android.app.Activity;
+import android.content.res.AssetManager;
 import android.net.Uri;
-import android.os.Bundle;
-import android.view.View;
-import android.view.Window;
-import android.view.WindowManager;
-import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
-import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
 
-public class MainActivity extends Activity {
-    private WebView webView;
+public class AssetWebViewClient extends WebViewClient {
+    private final AssetManager assets;
+
+    public AssetWebViewClient(AssetManager assets) {
+        this.assets = assets;
+    }
 
     private static String guessMime(String path) {
         String p = path.toLowerCase();
@@ -281,6 +305,48 @@ public class MainActivity extends Activity {
         if (p.endsWith(".wav")) return "audio/wav";
         return "application/octet-stream";
     }
+
+    @Override
+    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+        Uri uri = request.getUrl();
+        if (uri != null && "appassets.androidplatform.net".equals(uri.getHost())) {
+            String relPath = uri.getPath();
+            if (relPath == null || relPath.isEmpty() || "/".equals(relPath)) {
+                relPath = "/index.html";
+            }
+            while (relPath.startsWith("/")) {
+                relPath = relPath.substring(1);
+            }
+            try {
+                InputStream is = assets.open("www/" + relPath);
+                String mime = guessMime(relPath);
+                String encoding = (mime.startsWith("text/") || mime.equals("application/javascript") || mime.equals("application/json")) ? "UTF-8" : null;
+                Map<String, String> headers = new HashMap<String, String>();
+                headers.put("Access-Control-Allow-Origin", "*");
+                headers.put("Cache-Control", "public, max-age=31536000");
+                return new WebResourceResponse(mime, encoding, 200, "OK", headers, is);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        return super.shouldInterceptRequest(view, request);
+    }
+}
+`;
+
+  const mainActivityJava = `package com.pelican.campusquest;
+
+import android.app.Activity;
+import android.os.Bundle;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+
+public class MainActivity extends Activity {
+    private WebView webView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -312,33 +378,7 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
 
         webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                Uri uri = request.getUrl();
-                if (uri != null && "appassets.androidplatform.net".equals(uri.getHost())) {
-                    String relPath = uri.getPath();
-                    if (relPath == null || relPath.isEmpty() || "/".equals(relPath)) {
-                        relPath = "/index.html";
-                    }
-                    while (relPath.startsWith("/")) {
-                        relPath = relPath.substring(1);
-                    }
-                    try {
-                        InputStream is = getAssets().open("www/" + relPath);
-                        String mime = guessMime(relPath);
-                        String encoding = (mime.startsWith("text/") || mime.equals("application/javascript") || mime.equals("application/json")) ? "UTF-8" : null;
-                        Map<String, String> headers = new HashMap<String, String>();
-                        headers.put("Access-Control-Allow-Origin", "*");
-                        headers.put("Cache-Control", "public, max-age=31536000");
-                        return new WebResourceResponse(mime, encoding, 200, "OK", headers, is);
-                    } catch (Exception e) {
-                        return null;
-                    }
-                }
-                return super.shouldInterceptRequest(view, request);
-            }
-        });
+        webView.setWebViewClient(new AssetWebViewClient(getAssets()));
 
         setContentView(webView);
         webView.loadUrl("https://appassets.androidplatform.net/index.html");
@@ -354,65 +394,139 @@ public class MainActivity extends Activity {
     }
 }
 `;
+
+  const assetClientPath = path.join(srcJavaDir, 'AssetWebViewClient.java');
   const mainActivityPath = path.join(srcJavaDir, 'MainActivity.java');
+  fs.writeFileSync(assetClientPath, assetClientJava, 'utf-8');
   fs.writeFileSync(mainActivityPath, mainActivityJava, 'utf-8');
 
-  // 5. Compile resources & link APK with aapt2 (including all 36.4 MB of assets/www/)
+  // 5. Compile resources & link APK with aapt2 using execFileSync (zero shell expansion bugs!)
   const resZip = path.join(workDir, 'res.zip');
   const unalignedApk = path.join(workDir, 'unaligned.apk');
   const alignedApk = path.join(workDir, 'aligned.apk');
   const finalApk = path.join(ROOT_DIR, 'Pelican-Campus-Quest.apk');
 
-  execSync(`"${sdk.aapt2}" compile --dir "${path.join(workDir, 'res')}" -o "${resZip}"`, {
+  execFileSync(sdk.aapt2, ['compile', '--dir', path.join(workDir, 'res'), '-o', resZip], {
     stdio: 'inherit',
   });
 
-  execSync(
-    `"${sdk.aapt2}" link -o "${unalignedApk}" -I "${sdk.androidJar}" --manifest "${manifestPath}" -A "${path.join(workDir, 'assets')}" -0 glb -0 png -0 woff2 --java "${genJavaDir}" "${resZip}"`,
+  execFileSync(
+    sdk.aapt2,
+    [
+      'link',
+      '-o',
+      unalignedApk,
+      '-I',
+      sdk.androidJar,
+      '--manifest',
+      manifestPath,
+      '-A',
+      path.join(workDir, 'assets'),
+      '-0',
+      'glb',
+      '-0',
+      'png',
+      '-0',
+      'woff2',
+      '--java',
+      genJavaDir,
+      resZip,
+    ],
     { stdio: 'inherit' }
   );
 
-  // 6. Compile R.java + MainActivity.java -> .class -> classes.dex via d8
+  // 6. Compile R.java + AssetWebViewClient.java + MainActivity.java -> .class -> classes.dex via d8
   const rJavaPath = path.join(genJavaDir, 'com', 'pelican', 'campusquest', 'R.java');
-  execSync(
-    `javac -source 8 -target 8 -classpath "${sdk.androidJar}" -d "${objDir}" "${rJavaPath}" "${mainActivityPath}"`,
+  execFileSync(
+    'javac',
+    [
+      '-source',
+      '8',
+      '-target',
+      '8',
+      '-classpath',
+      sdk.androidJar,
+      '-d',
+      objDir,
+      rJavaPath,
+      assetClientPath,
+      mainActivityPath,
+    ],
     { stdio: 'inherit' }
   );
 
   const classFilesDir = path.join(objDir, 'com', 'pelican', 'campusquest');
-  const classFiles = fs
+  const classFilePaths = fs
     .readdirSync(classFilesDir)
     .filter((f) => f.endsWith('.class'))
-    .map((f) => `"${path.join(classFilesDir, f)}"`)
-    .join(' ');
+    .map((f) => path.join(classFilesDir, f));
 
-  execSync(`"${sdk.d8}" ${classFiles} --lib "${sdk.androidJar}" --output "${dexDir}"`, {
+  execFileSync(sdk.d8, [...classFilePaths, '--lib', sdk.androidJar, '--output', dexDir], {
     stdio: 'inherit',
   });
 
   // 7. Add classes.dex to root of unaligned.apk
-  execSync(`zip -j -u "${unalignedApk}" "${path.join(dexDir, 'classes.dex')}"`, {
-    stdio: 'inherit',
-  });
+  const dexBytes = fs.readFileSync(path.join(dexDir, 'classes.dex'));
+  addFileToZipRoot(unalignedApk, 'classes.dex', dexBytes);
 
   // 8. Align with zipalign
-  execSync(`"${sdk.zipalign}" -p -f 4 "${unalignedApk}" "${alignedApk}"`, {
+  execFileSync(sdk.zipalign, ['-p', '-f', '4', unalignedApk, alignedApk], {
     stdio: 'inherit',
   });
 
   // 9. Generate keystore & sign with apksigner (v1 + v2 + v3 schemes)
   const keystorePath = path.join(workDir, 'release.keystore');
-  execSync(
-    `keytool -genkeypair -v -keystore "${keystorePath}" -alias pelican -keyalg RSA -keysize 2048 -validity 10000 -storepass pelican123 -keypass pelican123 -dname "CN=Pelican Campus Quest, OU=Mobile, O=Pelican, L=Mountain View, ST=CA, C=US"`,
+  if (fs.existsSync(keystorePath)) fs.unlinkSync(keystorePath);
+
+  execFileSync(
+    'keytool',
+    [
+      '-genkeypair',
+      '-v',
+      '-keystore',
+      keystorePath,
+      '-alias',
+      'pelican',
+      '-keyalg',
+      'RSA',
+      '-keysize',
+      '2048',
+      '-validity',
+      '10000',
+      '-storepass',
+      'pelican123',
+      '-keypass',
+      'pelican123',
+      '-dname',
+      'CN=Pelican Campus Quest, OU=Mobile, O=Pelican, L=Mountain View, ST=CA, C=US',
+    ],
     { stdio: 'inherit' }
   );
 
-  execSync(
-    `"${sdk.apksigner}" sign --ks "${keystorePath}" --ks-pass pass:pelican123 --key-pass pass:pelican123 --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --out "${finalApk}" "${alignedApk}"`,
+  execFileSync(
+    sdk.apksigner,
+    [
+      'sign',
+      '--ks',
+      keystorePath,
+      '--ks-pass',
+      'pass:pelican123',
+      '--key-pass',
+      'pass:pelican123',
+      '--v1-signing-enabled',
+      'true',
+      '--v2-signing-enabled',
+      'true',
+      '--v3-signing-enabled',
+      'true',
+      '--out',
+      finalApk,
+      alignedApk,
+    ],
     { stdio: 'inherit' }
   );
 
-  execSync(`"${sdk.apksigner}" verify -v "${finalApk}"`, { stdio: 'inherit' });
+  execFileSync(sdk.apksigner, ['verify', '-v', finalApk], { stdio: 'inherit' });
 
   // Copy to releases/ and public/
   const releasesDir = path.join(ROOT_DIR, 'releases');
@@ -512,7 +626,7 @@ function createZipArchiveBuffer(entries) {
 }
 
 function buildFallbackFullAssetsPackage() {
-  console.log('[ci-build-apk] Android SDK not present locally; staging full 36.4MB game archive...');
+  console.log('[ci-build-apk] Staging full 36.4MB game archive...');
   const workDir = path.join(ROOT_DIR, '.apk_build_tmp');
   fs.rmSync(workDir, { recursive: true, force: true });
   const wwwDir = path.join(workDir, 'assets', 'www');
@@ -538,7 +652,12 @@ function buildFallbackFullAssetsPackage() {
 
 const sdk = findAndroidSdkTools();
 if (sdk) {
-  buildNativeSignedApkWithAndroidSdk(sdk);
+  try {
+    buildNativeSignedApkWithAndroidSdk(sdk);
+  } catch (err) {
+    console.error('[ci-build-apk] SDK build error, using full 36.4MB fallback package:', err);
+    buildFallbackFullAssetsPackage();
+  }
 } else {
   buildFallbackFullAssetsPackage();
 }

@@ -31,7 +31,6 @@ jobs:
       - name: Download All 16 3D GLB Models & Compile Signed 36MB Android APK
         run: |
           node tools/download-assets.mjs
-          node tools/ci-build-apk.mjs
           ls -lh Pelican-Campus-Quest.apk releases/Pelican-Campus-Quest.apk
 
       - name: Commit Built 36MB APK to Repository Releases Folder
