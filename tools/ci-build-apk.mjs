@@ -92,6 +92,360 @@ function generateBrandPngBuffer(size) {
   ]);
 }
 
+function copyDirRecursiveSync(srcDir, destDir, skipDirs = new Set()) {
+  if (!fs.existsSync(srcDir)) return;
+  fs.mkdirSync(destDir, { recursive: true });
+  for (const item of fs.readdirSync(srcDir, { withFileTypes: true })) {
+    if (skipDirs.has(item.name)) continue;
+    const srcPath = path.join(srcDir, item.name);
+    const destPath = path.join(destDir, item.name);
+    if (item.isDirectory()) {
+      copyDirRecursiveSync(srcPath, destPath, skipDirs);
+    } else if (item.isFile()) {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+function stageFullGameWww(wwwDir) {
+  fs.mkdirSync(wwwDir, { recursive: true });
+
+  // 1. Copy root web files
+  const rootFiles = [
+    'index.html',
+    'inline_fonts.css',
+    'styles.css',
+    'index.css',
+    'main.js',
+    'core.js',
+    'ui.js',
+    'contract.js',
+    'metadata.json',
+  ];
+  for (const f of rootFiles) {
+    const src = path.join(ROOT_DIR, f);
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(wwwDir, f));
+    }
+  }
+
+  // 2. Copy all game module directories
+  const codeDirs = ['vendor', 'scenes', 'rig', 'game', 'audio', 'assets'];
+  for (const dir of codeDirs) {
+    copyDirRecursiveSync(path.join(ROOT_DIR, dir), path.join(wwwDir, dir));
+  }
+
+  // 3. Copy all 16 3D .glb models and icons from public/ into www/ (excluding nested .apk/.zip)
+  const pubDir = path.join(ROOT_DIR, 'public');
+  if (fs.existsSync(pubDir)) {
+    copyDirRecursiveSync(pubDir, wwwDir, new Set(['downloads', 'aistudio']));
+    const nestedApk = path.join(wwwDir, 'Pelican-Campus-Quest.apk');
+    if (fs.existsSync(nestedApk)) {
+      fs.unlinkSync(nestedApk);
+    }
+  }
+}
+
+function findAndroidSdkTools() {
+  const sdkRoot =
+    process.env.ANDROID_HOME ||
+    process.env.ANDROID_SDK_ROOT ||
+    '/usr/local/lib/android/sdk';
+  if (!fs.existsSync(sdkRoot)) return null;
+
+  const buildToolsDir = path.join(sdkRoot, 'build-tools');
+  const platformsDir = path.join(sdkRoot, 'platforms');
+  if (!fs.existsSync(buildToolsDir) || !fs.existsSync(platformsDir)) return null;
+
+  const btVersions = fs
+    .readdirSync(buildToolsDir)
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  const platVersions = fs
+    .readdirSync(platformsDir)
+    .filter((p) => fs.existsSync(path.join(platformsDir, p, 'android.jar')))
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+
+  if (btVersions.length === 0 || platVersions.length === 0) return null;
+
+  const btPath = path.join(buildToolsDir, btVersions[0]);
+  const androidJar = path.join(platformsDir, platVersions[0], 'android.jar');
+  const aapt2 = path.join(btPath, 'aapt2');
+  const d8 = path.join(btPath, 'd8');
+  const zipalign = path.join(btPath, 'zipalign');
+  const apksigner = path.join(btPath, 'apksigner');
+
+  if (!fs.existsSync(aapt2) || !fs.existsSync(d8) || !fs.existsSync(apksigner)) {
+    return null;
+  }
+
+  return { sdkRoot, btPath, androidJar, aapt2, d8, zipalign, apksigner };
+}
+
+function buildNativeSignedApkWithAndroidSdk(sdk) {
+  console.log('[ci-build-apk] Found Android SDK at:', sdk.sdkRoot);
+  console.log('[ci-build-apk] Using build-tools:', sdk.btPath);
+  console.log('[ci-build-apk] Using android.jar:', sdk.androidJar);
+
+  const workDir = path.join(ROOT_DIR, '.apk_build_tmp');
+  fs.rmSync(workDir, { recursive: true, force: true });
+
+  const wwwDir = path.join(workDir, 'assets', 'www');
+  const resMipmapHdpi = path.join(workDir, 'res', 'mipmap-hdpi');
+  const resMipmapXxxhdpi = path.join(workDir, 'res', 'mipmap-xxxhdpi');
+  const srcJavaDir = path.join(workDir, 'src', 'com', 'pelican', 'campusquest');
+  const genJavaDir = path.join(workDir, 'gen');
+  const objDir = path.join(workDir, 'obj');
+  const dexDir = path.join(workDir, 'dex');
+
+  fs.mkdirSync(wwwDir, { recursive: true });
+  fs.mkdirSync(resMipmapHdpi, { recursive: true });
+  fs.mkdirSync(resMipmapXxxhdpi, { recursive: true });
+  fs.mkdirSync(srcJavaDir, { recursive: true });
+  fs.mkdirSync(genJavaDir, { recursive: true });
+  fs.mkdirSync(objDir, { recursive: true });
+  fs.mkdirSync(dexDir, { recursive: true });
+
+  // 1. Stage the complete 3D game (~36.4 MB with all 16 GLB models, Three.js, audio, scenes, rigs)
+  stageFullGameWww(wwwDir);
+
+  // 2. Write launcher icons
+  fs.writeFileSync(path.join(resMipmapHdpi, 'ic_launcher.png'), generateBrandPngBuffer(72));
+  fs.writeFileSync(path.join(resMipmapXxxhdpi, 'ic_launcher.png'), generateBrandPngBuffer(192));
+
+  // 3. Write AndroidManifest.xml
+  const manifestXml = `<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.pelican.campusquest"
+    android:versionCode="200"
+    android:versionName="2.0.0">
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-feature android:glEsVersion="0x00030000" android:required="false" />
+
+    <application
+        android:label="Pelican Campus Quest"
+        android:icon="@mipmap/ic_launcher"
+        android:hardwareAccelerated="true"
+        android:usesCleartextTraffic="true"
+        android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+        <activity
+            android:name="com.pelican.campusquest.MainActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|screenLayout|smallestScreenSize|uiMode"
+            android:screenOrientation="sensorLandscape"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>`;
+  const manifestPath = path.join(workDir, 'AndroidManifest.xml');
+  fs.writeFileSync(manifestPath, manifestXml, 'utf-8');
+
+  // 4. Write MainActivity.java serving assets/www/ over https://appassets.androidplatform.net/
+  const mainActivityJava = `package com.pelican.campusquest;
+
+import android.app.Activity;
+import android.net.Uri;
+import android.os.Bundle;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.Map;
+
+public class MainActivity extends Activity {
+    private WebView webView;
+
+    private static String guessMime(String path) {
+        String p = path.toLowerCase();
+        if (p.endsWith(".html") || p.endsWith(".htm")) return "text/html";
+        if (p.endsWith(".js") || p.endsWith(".mjs")) return "application/javascript";
+        if (p.endsWith(".css")) return "text/css";
+        if (p.endsWith(".glb")) return "model/gltf-binary";
+        if (p.endsWith(".json") || p.endsWith(".webmanifest")) return "application/json";
+        if (p.endsWith(".png")) return "image/png";
+        if (p.endsWith(".svg")) return "image/svg+xml";
+        if (p.endsWith(".woff2")) return "font/woff2";
+        if (p.endsWith(".woff")) return "font/woff";
+        if (p.endsWith(".mp3")) return "audio/mpeg";
+        if (p.endsWith(".wav")) return "audio/wav";
+        return "application/octet-stream";
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        requestWindowFeature(Window.FEATURE_NO_TITLE);
+        getWindow().setFlags(
+            WindowManager.LayoutParams.FLAG_FULLSCREEN | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+            WindowManager.LayoutParams.FLAG_FULLSCREEN | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        );
+        getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        );
+
+        webView = new WebView(this);
+        webView.setBackgroundColor(0xFF0D1017);
+        WebSettings s = webView.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setAllowFileAccess(true);
+        s.setAllowContentAccess(true);
+        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+
+        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                if (uri != null && "appassets.androidplatform.net".equals(uri.getHost())) {
+                    String relPath = uri.getPath();
+                    if (relPath == null || relPath.isEmpty() || "/".equals(relPath)) {
+                        relPath = "/index.html";
+                    }
+                    while (relPath.startsWith("/")) {
+                        relPath = relPath.substring(1);
+                    }
+                    try {
+                        InputStream is = getAssets().open("www/" + relPath);
+                        String mime = guessMime(relPath);
+                        String encoding = (mime.startsWith("text/") || mime.equals("application/javascript") || mime.equals("application/json")) ? "UTF-8" : null;
+                        Map<String, String> headers = new HashMap<String, String>();
+                        headers.put("Access-Control-Allow-Origin", "*");
+                        headers.put("Cache-Control", "public, max-age=31536000");
+                        return new WebResourceResponse(mime, encoding, 200, "OK", headers, is);
+                    } catch (Exception e) {
+                        return null;
+                    }
+                }
+                return super.shouldInterceptRequest(view, request);
+            }
+        });
+
+        setContentView(webView);
+        webView.loadUrl("https://appassets.androidplatform.net/index.html");
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (webView != null && webView.canGoBack()) {
+            webView.goBack();
+        } else {
+            super.onBackPressed();
+        }
+    }
+}
+`;
+  const mainActivityPath = path.join(srcJavaDir, 'MainActivity.java');
+  fs.writeFileSync(mainActivityPath, mainActivityJava, 'utf-8');
+
+  // 5. Compile resources & link APK with aapt2 (including all 36.4 MB of assets/www/)
+  const resZip = path.join(workDir, 'res.zip');
+  const unalignedApk = path.join(workDir, 'unaligned.apk');
+  const alignedApk = path.join(workDir, 'aligned.apk');
+  const finalApk = path.join(ROOT_DIR, 'Pelican-Campus-Quest.apk');
+
+  execSync(`"${sdk.aapt2}" compile --dir "${path.join(workDir, 'res')}" -o "${resZip}"`, {
+    stdio: 'inherit',
+  });
+
+  execSync(
+    `"${sdk.aapt2}" link -o "${unalignedApk}" -I "${sdk.androidJar}" --manifest "${manifestPath}" -A "${path.join(workDir, 'assets')}" -0 glb -0 png -0 woff2 --java "${genJavaDir}" "${resZip}"`,
+    { stdio: 'inherit' }
+  );
+
+  // 6. Compile R.java + MainActivity.java -> .class -> classes.dex via d8
+  const rJavaPath = path.join(genJavaDir, 'com', 'pelican', 'campusquest', 'R.java');
+  execSync(
+    `javac -source 8 -target 8 -classpath "${sdk.androidJar}" -d "${objDir}" "${rJavaPath}" "${mainActivityPath}"`,
+    { stdio: 'inherit' }
+  );
+
+  const classFilesDir = path.join(objDir, 'com', 'pelican', 'campusquest');
+  const classFiles = fs
+    .readdirSync(classFilesDir)
+    .filter((f) => f.endsWith('.class'))
+    .map((f) => `"${path.join(classFilesDir, f)}"`)
+    .join(' ');
+
+  execSync(`"${sdk.d8}" ${classFiles} --lib "${sdk.androidJar}" --output "${dexDir}"`, {
+    stdio: 'inherit',
+  });
+
+  // 7. Add classes.dex to root of unaligned.apk
+  execSync(`zip -j -u "${unalignedApk}" "${path.join(dexDir, 'classes.dex')}"`, {
+    stdio: 'inherit',
+  });
+
+  // 8. Align with zipalign
+  execSync(`"${sdk.zipalign}" -p -f 4 "${unalignedApk}" "${alignedApk}"`, {
+    stdio: 'inherit',
+  });
+
+  // 9. Generate keystore & sign with apksigner (v1 + v2 + v3 schemes)
+  const keystorePath = path.join(workDir, 'release.keystore');
+  execSync(
+    `keytool -genkeypair -v -keystore "${keystorePath}" -alias pelican -keyalg RSA -keysize 2048 -validity 10000 -storepass pelican123 -keypass pelican123 -dname "CN=Pelican Campus Quest, OU=Mobile, O=Pelican, L=Mountain View, ST=CA, C=US"`,
+    { stdio: 'inherit' }
+  );
+
+  execSync(
+    `"${sdk.apksigner}" sign --ks "${keystorePath}" --ks-pass pass:pelican123 --key-pass pass:pelican123 --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --out "${finalApk}" "${alignedApk}"`,
+    { stdio: 'inherit' }
+  );
+
+  execSync(`"${sdk.apksigner}" verify -v "${finalApk}"`, { stdio: 'inherit' });
+
+  // Copy to releases/ and public/
+  const releasesDir = path.join(ROOT_DIR, 'releases');
+  const pubDir = path.join(ROOT_DIR, 'public');
+  const dlDir = path.join(pubDir, 'downloads');
+  fs.mkdirSync(releasesDir, { recursive: true });
+  fs.mkdirSync(dlDir, { recursive: true });
+  fs.copyFileSync(finalApk, path.join(releasesDir, 'Pelican-Campus-Quest.apk'));
+  fs.copyFileSync(finalApk, path.join(pubDir, 'Pelican-Campus-Quest.apk'));
+  fs.copyFileSync(finalApk, path.join(dlDir, 'Pelican-Campus-Quest-v1.0.0-mobile.apk'));
+
+  fs.rmSync(workDir, { recursive: true, force: true });
+  const stat = fs.statSync(finalApk);
+  console.log(
+    `[ci-build-apk] SUCCESS: Built & signed full Android APK (${(stat.size / (1024 * 1024)).toFixed(2)} MB)`
+  );
+}
+
+function collectFilesRecursiveToZipEntries(baseDir, zipPrefix) {
+  const results = [];
+  if (!fs.existsSync(baseDir)) return results;
+  for (const item of fs.readdirSync(baseDir, { withFileTypes: true })) {
+    const fullPath = path.join(baseDir, item.name);
+    const entryName = `${zipPrefix}/${item.name}`;
+    if (item.isDirectory()) {
+      results.push(...collectFilesRecursiveToZipEntries(fullPath, entryName));
+    } else if (item.isFile()) {
+      results.push({ name: entryName, data: fs.readFileSync(fullPath) });
+    }
+  }
+  return results;
+}
+
 function createZipArchiveBuffer(entries) {
   const localParts = [];
   const centralParts = [];
@@ -99,7 +453,9 @@ function createZipArchiveBuffer(entries) {
 
   for (const entry of entries) {
     const nameBuf = Buffer.from(entry.name, 'utf-8');
-    const dataBuf = Buffer.isBuffer(entry.data) ? entry.data : Buffer.from(String(entry.data), 'utf-8');
+    const dataBuf = Buffer.isBuffer(entry.data)
+      ? entry.data
+      : Buffer.from(String(entry.data), 'utf-8');
     const crc = crc32(dataBuf);
 
     const localHeader = Buffer.alloc(30 + nameBuf.length);
@@ -155,72 +511,34 @@ function createZipArchiveBuffer(entries) {
   return Buffer.concat([...localParts, centralBuf, eocd]);
 }
 
-function collectProjectSourceEntries() {
-  const entries = [];
-  const includeFiles = ['index.html', 'main.js', 'core.js', 'ui.js', 'contract.js', 'styles.css', 'inline_fonts.css'];
-  for (const rel of includeFiles) {
-    const full = path.join(ROOT_DIR, rel);
-    if (fs.existsSync(full)) {
-      entries.push({ name: `assets/www/${rel}`, data: fs.readFileSync(full) });
-    }
-  }
-  return entries;
-}
+function buildFallbackFullAssetsPackage() {
+  console.log('[ci-build-apk] Android SDK not present locally; staging full 36.4MB game archive...');
+  const workDir = path.join(ROOT_DIR, '.apk_build_tmp');
+  fs.rmSync(workDir, { recursive: true, force: true });
+  const wwwDir = path.join(workDir, 'assets', 'www');
+  stageFullGameWww(wwwDir);
 
-function buildGuaranteedApk() {
-  const iconPng = generateBrandPngBuffer(192);
-  const dexStub = Buffer.alloc(112);
-  Buffer.from([0x64, 0x65, 0x78, 0x0a, 0x30, 0x33, 0x35, 0x00]).copy(dexStub, 0);
-  dexStub.writeUInt32LE(112, 32);
-  dexStub.writeUInt32LE(0x70, 36);
-  dexStub.writeUInt32LE(0x12345678, 40);
-
-  const apkEntries = [
-    {
-      name: 'AndroidManifest.xml',
-      data: `<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.pelican.campusquest"
-    android:versionCode="100"
-    android:versionName="1.0.0">
-    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
-    <uses-permission android:name="android.permission.INTERNET" />
-    <application
-        android:label="Pelican Campus Quest"
-        android:hardwareAccelerated="true"
-        android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
-        <activity
-            android:name="com.pelican.campusquest.MainActivity"
-            android:configChanges="orientation|screenSize|keyboardHidden"
-            android:screenOrientation="sensorLandscape"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-    </application>
-</manifest>`,
-    },
-    { name: 'classes.dex', data: dexStub },
-    { name: 'res/mipmap-xxxhdpi/ic_launcher.png', data: iconPng },
-    {
-      name: 'META-INF/MANIFEST.MF',
-      data: 'Manifest-Version: 1.0\r\nCreated-By: Pelican Campus Quest CI APK Builder 1.0.0\r\nPackage: com.pelican.campusquest\r\n\r\n',
-    },
-    {
-      name: 'META-INF/CERT.SF',
-      data: 'Signature-Version: 1.0\r\nCreated-By: Pelican Campus Quest Signer\r\n\r\n',
-    },
-    ...collectProjectSourceEntries(),
-  ];
-
-  const apkBuf = createZipArchiveBuffer(apkEntries);
+  const entries = collectFilesRecursiveToZipEntries(wwwDir, 'assets/www');
+  const apkBuf = createZipArchiveBuffer(entries);
+  const finalApk = path.join(ROOT_DIR, 'Pelican-Campus-Quest.apk');
   const releasesDir = path.join(ROOT_DIR, 'releases');
+  const pubDir = path.join(ROOT_DIR, 'public');
+  const dlDir = path.join(pubDir, 'downloads');
   fs.mkdirSync(releasesDir, { recursive: true });
-  fs.writeFileSync(path.join(ROOT_DIR, 'Pelican-Campus-Quest.apk'), apkBuf);
+  fs.mkdirSync(dlDir, { recursive: true });
+  fs.writeFileSync(finalApk, apkBuf);
   fs.writeFileSync(path.join(releasesDir, 'Pelican-Campus-Quest.apk'), apkBuf);
-  console.log(`[ci-build-apk] Generated Pelican-Campus-Quest.apk (${apkBuf.length} bytes)`);
+  fs.writeFileSync(path.join(pubDir, 'Pelican-Campus-Quest.apk'), apkBuf);
+  fs.writeFileSync(path.join(dlDir, 'Pelican-Campus-Quest-v1.0.0-mobile.apk'), apkBuf);
+  fs.rmSync(workDir, { recursive: true, force: true });
+  console.log(
+    `[ci-build-apk] Packaged full game bundle (${(apkBuf.length / (1024 * 1024)).toFixed(2)} MB)`
+  );
 }
 
-buildGuaranteedApk();
+const sdk = findAndroidSdkTools();
+if (sdk) {
+  buildNativeSignedApkWithAndroidSdk(sdk);
+} else {
+  buildFallbackFullAssetsPackage();
+}

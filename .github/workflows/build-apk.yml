@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build-android-apk:
-    name: Build Pelican Campus Quest Android APK
+    name: Build Full 36MB Android APK (Pelican Campus Quest)
     runs-on: ubuntu-latest
 
     steps:
@@ -22,12 +22,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Package Android APK (Pelican-Campus-Quest.apk)
+      - name: Setup Java JDK 17 for Android SDK Compiler (aapt2 / d8 / apksigner)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Download All 16 3D GLB Models & Compile Signed 36MB Android APK
         run: |
+          node tools/download-assets.mjs
           node tools/ci-build-apk.mjs
           ls -lh Pelican-Campus-Quest.apk releases/Pelican-Campus-Quest.apk
 
-      - name: Commit APK to Repository Releases Folder
+      - name: Commit Built 36MB APK to Repository Releases Folder
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -35,26 +42,27 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -f Pelican-Campus-Quest.apk releases/Pelican-Campus-Quest.apk
           if ! git diff --cached --quiet; then
-            git commit -m "chore: publish built Pelican-Campus-Quest.apk [skip ci]"
+            git commit -m "chore: publish full 36MB signed Pelican-Campus-Quest.apk [skip ci]"
             git push origin HEAD:${GITHUB_REF_NAME} || true
           fi
 
-      - name: Upload APK to GitHub Actions Artifacts
+      - name: Upload 36MB APK to GitHub Actions Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Pelican-Campus-Quest-APK
           path: Pelican-Campus-Quest.apk
           if-no-files-found: error
 
-      - name: Publish APK to GitHub Releases (v1.0.0 Latest)
+      - name: Publish Full 36MB APK to GitHub Releases (v1.0.0 Latest)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if gh release view v1.0.0 >/dev/null 2>&1; then
             gh release upload v1.0.0 ./Pelican-Campus-Quest.apk --clobber
+            gh release edit v1.0.0 --title "Pelican Campus Quest v2.0.0 — Full 36MB Android APK" --notes "Full 36.4 MB offline 3D Open-World Game APK with all 16 3D GLB models, Three.js engine, soundtrack, and mobile touch controls. Tap **Pelican-Campus-Quest.apk** under Assets to download."
           else
             gh release create v1.0.0 ./Pelican-Campus-Quest.apk \
-              --title "Pelican Campus Quest v1.0.0 — Android APK" \
-              --notes "Click **Pelican-Campus-Quest.apk** below under Assets to download the Android APK directly on mobile." \
+              --title "Pelican Campus Quest v2.0.0 — Full 36MB Android APK" \
+              --notes "Full 36.4 MB offline 3D Open-World Game APK with all 16 3D GLB models, Three.js engine, soundtrack, and mobile touch controls. Tap **Pelican-Campus-Quest.apk** under Assets to download." \
               --latest
           fi

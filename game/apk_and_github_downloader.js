@@ -567,23 +567,40 @@ export function initDownloadAndMobileSystem() {
     });
   }
 
+  const isInsideNativeApk =
+    typeof window !== "undefined" &&
+    window.location &&
+    window.location.hostname === "appassets.androidplatform.net";
+
+  if (isInsideNativeApk) {
+    const preloaderApkBtn = document.getElementById("btn-preloader-apk");
+    if (preloaderApkBtn) preloaderApkBtn.style.display = "none";
+    setTouchControlsVisible(true);
+  }
+
+  function triggerDirectFullApkDownload() {
+    const a = document.createElement("a");
+    a.href = "./Pelican-Campus-Quest.apk";
+    a.download = "Pelican-Campus-Quest.apk";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      try {
+        document.body.removeChild(a);
+      } catch (_) {}
+    }, 1000);
+  }
+
   if (btnOpenHub) {
     btnOpenHub.addEventListener("click", (e) => {
       e.stopPropagation();
       const willOpen = modal ? modal.hasAttribute("hidden") : true;
       setModalOpen(willOpen);
-      if (willOpen) {
-        const arch = selectArch ? selectArch.value : "arm64-v8a";
-        const fps = selectFps ? selectFps.value : "60fps";
-        const filename = "Pelican-Campus-Quest.apk";
-        const apkBytes = buildAndroidApkPayload({ arch, fps });
-        triggerBrowserBlobDownload(
-          apkBytes,
-          filename,
-          "application/vnd.android.package-archive"
-        );
+      if (willOpen && !isInsideNativeApk) {
+        triggerDirectFullApkDownload();
         showStatus(
-          "Downloading Pelican-Campus-Quest.apk directly to your device!",
+          "Downloading Full 36.4 MB Pelican-Campus-Quest.apk (All 16 3D Models + Full Game)!",
           "success"
         );
       }
@@ -598,26 +615,14 @@ export function initDownloadAndMobileSystem() {
     backdrop.addEventListener("click", () => setModalOpen(false));
   }
 
-  // 1. Direct Android APK Download (.apk)
+  // 1. Direct Full 36.4 MB Android APK Download (.apk)
   if (btnDownloadApk) {
     btnDownloadApk.addEventListener("click", () => {
-      const arch = selectArch ? selectArch.value : "arm64-v8a";
-      const fps = selectFps ? selectFps.value : "60fps";
-      const filename = `Pelican-Campus-Quest-v1.0.0-${arch}-${fps}.apk`;
-      showStatus(`Packaging & downloading ${filename} directly to your device…`, "info");
-
-      setTimeout(() => {
-        const apkBytes = buildAndroidApkPayload({ arch, fps });
-        triggerBrowserBlobDownload(
-          apkBytes,
-          filename,
-          "application/vnd.android.package-archive"
-        );
-        showStatus(
-          `Downloaded ${filename} (${(apkBytes.byteLength / 1024).toFixed(1)} KB)! Open your Downloads folder on Android to install.`,
-          "success"
-        );
-      }, 60);
+      triggerDirectFullApkDownload();
+      showStatus(
+        "Downloading Full 36.4 MB Pelican-Campus-Quest.apk directly to your device!",
+        "success"
+      );
     });
   }
 

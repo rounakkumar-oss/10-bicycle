@@ -252,10 +252,9 @@ function createZipArchiveBuffer(entries) {
   return Buffer.concat([...localParts, centralBuf, eocd]);
 }
 
-async function ensurePwaIconsAndDownloadBundles() {
+async function ensurePwaIcons() {
   const pubDir = path.join(ROOT_DIR, 'public');
-  const dlDir = path.join(pubDir, 'downloads');
-  await fs.mkdir(dlDir, { recursive: true });
+  await fs.mkdir(pubDir, { recursive: true });
 
   const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="16" fill="#0F1218"/>
@@ -278,117 +277,14 @@ async function ensurePwaIconsAndDownloadBundles() {
   await fs.writeFile(path.join(pubDir, 'pwa-192x192.png'), png192);
   await fs.writeFile(path.join(pubDir, 'pwa-512x512.png'), png512);
   await fs.writeFile(path.join(pubDir, 'pwa-maskable-512x512.png'), pngMaskable512);
-
-  // Build static Android APK package & GitHub Release ZIP in public/downloads/
-  const apkEntries = [
-    {
-      name: 'AndroidManifest.xml',
-      data: `<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.pelican.campusquest"
-    android:versionCode="100"
-    android:versionName="1.0.0">
-    <uses-permission android:name="android.permission.INTERNET" />
-    <application
-        android:label="Pelican Campus Quest"
-        android:hardwareAccelerated="true"
-        android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
-        <activity
-            android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|keyboardHidden"
-            android:screenOrientation="sensorLandscape"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-    </application>
-</manifest>`,
-    },
-    {
-      name: 'META-INF/MANIFEST.MF',
-      data: 'Manifest-Version: 1.0\r\nCreated-By: Pelican Campus Quest Android APK Packager 1.0.0\r\nPackage: com.pelican.campusquest\r\n\r\n',
-    },
-    {
-      name: 'res/mipmap-xxxhdpi/ic_launcher.png',
-      data: png192,
-    },
-    {
-      name: 'assets/capacitor.config.json',
-      data: JSON.stringify(
-        {
-          appId: 'com.pelican.campusquest',
-          appName: 'Pelican Campus Quest',
-          webDir: 'dist',
-          bundledWebRuntime: false,
-          android: { allowMixedContent: true },
-        },
-        null,
-        2
-      ),
-    },
-  ];
-  for (const rel of ['index.html', 'main.js', 'core.js', 'ui.js', 'contract.js', 'styles.css', 'inline_fonts.css']) {
-    try {
-      const data = await fs.readFile(path.join(ROOT_DIR, rel));
-      apkEntries.push({ name: `assets/www/${rel}`, data });
-    } catch (_) {}
-  }
-  const apkBuf = createZipArchiveBuffer(apkEntries);
-  const rootReleasesDir = path.join(ROOT_DIR, 'releases');
-  await fs.mkdir(rootReleasesDir, { recursive: true });
-  await fs.writeFile(path.join(ROOT_DIR, 'Pelican-Campus-Quest.apk'), apkBuf);
-  await fs.writeFile(path.join(rootReleasesDir, 'Pelican-Campus-Quest.apk'), apkBuf);
-  await fs.writeFile(path.join(pubDir, 'Pelican-Campus-Quest.apk'), apkBuf);
-  await fs.writeFile(path.join(dlDir, 'Pelican-Campus-Quest-v1.0.0-mobile.apk'), apkBuf);
-
-  const githubZipEntries = [
-    ...apkEntries,
-    {
-      name: 'README.md',
-      data: `# Pelican Campus Quest — Mountain View 3D Open World (Mobile APK & WebGL)\n\n## Direct Mobile APK & GitHub Build\n1. Run \`npm install && npm run build\`\n2. Run \`npx cap sync android && cd android && ./gradlew assembleDebug\`\n3. Or push to GitHub to trigger \`.github/workflows/build-android-apk.yml\` for automatic APK artifacts.\n`,
-    },
-    {
-      name: '.github/workflows/build-android-apk.yml',
-      data: `name: Build Android APK
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
-
-jobs:
-  build-apk:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-      - name: Install & Build WebGL Bundle
-        run: |
-          npm install
-          npm run build
-      - name: Package Android WebView APK
-        run: |
-          npx @capacitor/cli@latest add android || true
-          npx @capacitor/cli@latest sync android || true
-`,
-    },
-  ];
-  const zipBuf = createZipArchiveBuffer(githubZipEntries);
-  await fs.writeFile(path.join(dlDir, 'Pelican-Campus-Quest-GitHub-Main.zip'), zipBuf);
 }
 
 async function main() {
   await Promise.all([
     ...GLB_SLUGS.map((slug) => ensureSingleGlb(slug)),
-    ensurePwaIconsAndDownloadBundles(),
+    ensurePwaIcons(),
   ]);
+  await import('./ci-build-apk.mjs');
 }
 
 main().catch((err) => {
