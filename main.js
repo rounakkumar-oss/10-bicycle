@@ -74,6 +74,7 @@ if (typeof window !== "undefined") {
 
 let core = null;
 let uiController = null;
+let downloadHubController = null;
 let rafId = null;
 let lastRafTimestamp = null;
 let expectedNextFrameIndex = 0;
@@ -421,8 +422,17 @@ function attachManualActivityAndKeyboardListeners(canvas) {
       return;
     }
 
+    if (code === "KeyG") {
+      state.idleSec = 0.0;
+      const dlModal = typeof document !== "undefined" ? document.getElementById("download-apk-modal") : null;
+      const wantOpen = dlModal ? dlModal.hasAttribute("hidden") : true;
+      downloadHubController?.setModalOpen?.(wantOpen);
+      return;
+    }
+
     if (code === "Escape") {
       uiController?.setCamPopoverOpen?.(false);
+      downloadHubController?.setModalOpen?.(false);
       if (state.xrayEnabled) {
         dispatchAction(DEMO_ACTIONS.TOGGLE_XRAY, { enabled: false });
       }
@@ -573,6 +583,7 @@ function boot() {
     window.__PELICAN_APP__ = core;
   }
   uiController = initUI();
+  downloadHubController = initDownloadAndMobileSystem();
 
   bus.addEventListener(DEMO_EVENTS.QUALITY_CHANGED, (e) => {
     const tier = e.detail?.qualityTier || state.qualityTier;

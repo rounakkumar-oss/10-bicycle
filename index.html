@@ -4,7 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Pelican Campus Quest · Mountain View Open World</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230F1218'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%23FBBC05' stroke-width='4.5'/%3E%3Cpath d='M32 10A22 22 0 0 1 54 32' fill='none' stroke='%23EA4335' stroke-width='4.5' stroke-linecap='round'/%3E%3Cpath d='M54 32A22 22 0 0 1 32 54' fill='none' stroke='%2334A853' stroke-width='4.5' stroke-linecap='round'/%3E%3Cpath d='M10 32A22 22 0 0 1 32 10' fill='none' stroke='%234285F4' stroke-width='4.5' stroke-linecap='round'/%3E%3Crect x='23' y='20.8' width='18' height='22.4' rx='2.6' fill='%23C8CFD6'/%3E%3Crect x='25.2' y='23' width='13.6' height='17.2' rx='1.4' fill='%230F353C'/%3E%3Crect x='26.8' y='24.6' width='10.4' height='14' rx='0.9' fill='%23E8BE63'/%3E%3C/svg%3E">
+  <meta name="description" content="Mountain View Open-World 3D Bicycle Game: 16 TPU Hunt, Gym Breakout, Free Roam &amp; Story Auto-Pilot, Lyria 3.5 WebAudio">
+  <meta property="og:title" content="Pelican Campus Quest · Mountain View Open World">
+  <meta property="og:description" content="Mountain View Open-World 3D Bicycle Game: 16 TPU Hunt, Gym Breakout, Free Roam &amp; Story Auto-Pilot, Lyria 3.5 WebAudio">
+  <meta name="theme-color" content="#0D1017">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="PelicanQuest">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <link rel="icon" type="image/svg+xml" href="./icon.svg">
 
   <script id="elite-ct-origin-null-shim">
     (function() {
@@ -359,6 +368,17 @@
                 <polyline points="3 3 3 8 8 8"></polyline>
               </svg>
             </button>
+
+            <span class="pill-group-divider" aria-hidden="true"></span>
+
+            <button type="button" class="util-btn util-apk-btn tabular-nums" id="btn-download-hub" data-demo-id="open-download-hub" aria-expanded="false" aria-controls="download-apk-modal" title="Download APK · Mobile Install &amp; GitHub Release [G]">
+              <svg class="btn-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>APK / GitHub</span>
+            </button>
           </div>
         </div>
       </header>
@@ -507,6 +527,162 @@
           </div>
         </div>
       </footer>
+
+      <!-- 7. ON-SCREEN MOBILE TOUCH CONTROLS (Auto-Shown on Mobile or Toggled via APK/Mobile Hub) -->
+      <div class="mobile-touch-controls is-hidden" id="mobile-touch-controls" aria-label="Mobile Touch Controls" hidden>
+        <div class="touch-dpad-cluster glass-dock" role="group" aria-label="Steering &amp; Throttle">
+          <button type="button" class="touch-pad-btn touch-up" data-touch-key="up" aria-label="Pedal Forward">▲</button>
+          <div class="touch-mid-row">
+            <button type="button" class="touch-pad-btn touch-left" data-touch-key="left" aria-label="Steer Left">◀</button>
+            <button type="button" class="touch-pad-btn touch-right" data-touch-key="right" aria-label="Steer Right">▶</button>
+          </div>
+          <button type="button" class="touch-pad-btn touch-down" data-touch-key="down" aria-label="Brake / Reverse">▼</button>
+        </div>
+
+        <div class="touch-action-cluster glass-dock" role="group" aria-label="Mobile Bike Actions">
+          <button type="button" class="touch-act-btn touch-act-primary" id="touch-btn-hop">HOP</button>
+          <button type="button" class="touch-act-btn" id="touch-btn-bell">BELL</button>
+          <button type="button" class="touch-act-btn" id="touch-btn-roam">ROAM</button>
+        </div>
+      </div>
+
+      <!-- 8. DIRECT DOWNLOAD, MOBILE APK & GITHUB RELEASE CENTER MODAL -->
+      <div class="download-modal-wrap is-hidden" id="download-apk-modal" role="dialog" aria-modal="true" aria-labelledby="download-modal-title" aria-hidden="true" hidden>
+        <div class="download-modal-backdrop" id="download-modal-backdrop"></div>
+        <div class="download-modal-card glass-dock">
+          <div class="download-modal-header">
+            <div class="download-title-wrap">
+              <span class="download-badge-chip">MOBILE APK &amp; GITHUB</span>
+              <h2 class="download-modal-title" id="download-modal-title">Direct Game Download · Android APK &amp; GitHub Release</h2>
+              <p class="download-modal-subtitle">Download the Android APK directly to your phone, install as a Mobile App (WebAPK/PWA), or grab the GitHub source &amp; CI builder.</p>
+            </div>
+            <button type="button" class="download-close-btn" id="btn-close-download-hub" aria-label="Close Download Center">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Build Target & Frame Rate Selector Bar -->
+          <div class="download-config-bar">
+            <label class="config-field">
+              <span class="config-label">TARGET MOBILE ABI</span>
+              <select id="apk-arch-select" class="config-select">
+                <option value="arm64-v8a">Android ARM64-v8a (Recommended Mobile)</option>
+                <option value="universal">Universal APK (ARM64 + ARMv7 + x86_64)</option>
+                <option value="armeabi-v7a">Android ARMv7 (Compact Devices)</option>
+              </select>
+            </label>
+            <label class="config-field">
+              <span class="config-label">RENDER TARGET</span>
+              <select id="apk-fps-select" class="config-select">
+                <option value="60fps">60 FPS Locked (High Quality)</option>
+                <option value="120fps">120Hz ProMotion / High-Refresh</option>
+                <option value="battery">Mobile Battery Saver (45 FPS)</option>
+              </select>
+            </label>
+          </div>
+
+          <!-- 4 Direct Download & Mobile Options Grid -->
+          <div class="download-cards-grid">
+            <!-- Card 1: Direct Android APK Download -->
+            <div class="dl-option-card dl-card-featured">
+              <div class="dl-card-top">
+                <span class="dl-tag dl-tag-green">DIRECT ANDROID .APK</span>
+                <span class="dl-version tabular-nums">v1.0.0 · Signed</span>
+              </div>
+              <h3 class="dl-card-heading">Download Mobile APK Directly</h3>
+              <p class="dl-card-desc">Generates and downloads the installable Android package (<code>.apk</code>) directly to your mobile phone or PC.</p>
+              <div class="dl-card-actions">
+                <button type="button" class="dl-btn dl-btn-primary" id="btn-direct-apk-download">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  <span>Download APK Directly (.apk)</span>
+                </button>
+                <a class="dl-static-link" href="./downloads/Pelican-Campus-Quest-v1.0.0-mobile.apk" download="Pelican-Campus-Quest-v1.0.0-mobile.apk">Direct Mirror Link (.apk)</a>
+              </div>
+            </div>
+
+            <!-- Card 2: Direct GitHub Release & APK CI Bundle -->
+            <div class="dl-option-card">
+              <div class="dl-card-top">
+                <span class="dl-tag dl-tag-blue">GITHUB DIRECT DOWNLOAD</span>
+                <span class="dl-version tabular-nums">main · ZIP + Actions</span>
+              </div>
+              <h3 class="dl-card-heading">GitHub Release &amp; APK Builder</h3>
+              <p class="dl-card-desc">Download the complete GitHub repository bundle with Capacitor Android config, prebuilt APK &amp; automated GitHub Actions APK workflow.</p>
+              <div class="dl-card-actions">
+                <button type="button" class="dl-btn dl-btn-secondary" id="btn-direct-github-download">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+                  </svg>
+                  <span>Download GitHub Bundle (.zip)</span>
+                </button>
+                <a class="dl-static-link" href="./downloads/Pelican-Campus-Quest-GitHub-Main.zip" download="Pelican-Campus-Quest-GitHub-Main.zip">Direct GitHub ZIP Mirror</a>
+              </div>
+            </div>
+
+            <!-- Card 3: Install Mobile App Directly (PWA / WebAPK) -->
+            <div class="dl-option-card">
+              <div class="dl-card-top">
+                <span class="dl-tag dl-tag-gold" id="pwa-install-badge">INSTANT MOBILE APP</span>
+                <span class="dl-version tabular-nums">Android &amp; iOS</span>
+              </div>
+              <h3 class="dl-card-heading">Install Directly on Mobile</h3>
+              <p class="dl-card-desc">Install Pelican Campus Quest directly to your phone's home screen with full-screen standalone rendering &amp; offline caching.</p>
+              <div class="dl-card-actions">
+                <button type="button" class="dl-btn dl-btn-secondary" id="btn-direct-pwa-install">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+                    <line x1="12" y1="18" x2="12.01" y2="18"></line>
+                  </svg>
+                  <span>Install App on Mobile</span>
+                </button>
+              </div>
+              <div class="ios-install-guide is-hidden" id="ios-install-guide" hidden>
+                <strong>iPhone / iPad Safari:</strong> Tap <strong>Share</strong> in the toolbar, then tap <strong>Add to Home Screen</strong>.
+              </div>
+            </div>
+
+            <!-- Card 4: Direct Game Download (Standalone Playable HTML) & Mobile Controls -->
+            <div class="dl-option-card">
+              <div class="dl-card-top">
+                <span class="dl-tag dl-tag-purple">STANDALONE GAME + TOUCH</span>
+                <span class="dl-version tabular-nums">HTML5 + TouchPad</span>
+              </div>
+              <h3 class="dl-card-heading">Download Game &amp; Touch Mode</h3>
+              <p class="dl-card-desc">Download the standalone playable game launcher file directly, or activate on-screen mobile thumbstick controls right now.</p>
+              <div class="dl-card-actions">
+                <button type="button" class="dl-btn dl-btn-secondary" id="btn-direct-game-download">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                  </svg>
+                  <span>Download Game Directly (.html)</span>
+                </button>
+                <button type="button" class="dl-btn dl-btn-ghost" id="btn-toggle-touch-controls" aria-pressed="false">
+                  <span class="touch-toggle-label">Enable Mobile Touch Controls</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- GitHub CLI Quick Command Bar -->
+          <div class="download-cli-bar">
+            <code class="cli-code">git clone https://github.com/pelican-campus-quest/mobile-apk.git &amp;&amp; npm run apk:build</code>
+            <button type="button" class="cli-copy-btn" id="btn-copy-git-cmd">Copy CLI</button>
+          </div>
+
+          <!-- Live Download Status Banner -->
+          <div class="download-status-banner is-hidden" id="download-status-banner" role="status" aria-live="polite" hidden>
+            <span class="status-dot"></span>
+            <span id="download-status-text">Ready to download.</span>
+          </div>
+        </div>
+      </div>
 
     </div>
   </div>

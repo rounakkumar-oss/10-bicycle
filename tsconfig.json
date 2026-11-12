@@ -5,7 +5,8 @@
     "moduleResolution": "bundler",
     "allowJs": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "types": ["vite/client", "vite-plugin-pwa/client"]
   },
   "include": [
     "vite.config.ts"
