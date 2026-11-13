@@ -153,9 +153,15 @@ function detectSoftwareWebGLRenderer() {
  * falling back seamlessly and silently (`0` console errors) to `decodeFn()` under `Origin: null` (`file://`),
  * offline, `window.__forceInlineGlb`, or 404.
  */
+const _glbBufferCache = new Map();
+
 async function parseInlineGlbScene(loader, decodeFn, slug = "") {
   let raw = null;
+  if (slug && _glbBufferCache.has(slug)) {
+    raw = _glbBufferCache.get(slug);
+  }
   if (
+    !raw &&
     slug &&
     typeof window !== "undefined" &&
     (window.location?.protocol === "http:" || window.location?.protocol === "https:") &&
@@ -164,9 +170,23 @@ async function parseInlineGlbScene(loader, decodeFn, slug = "") {
   ) {
     const gstaticUrl = `https://www.gstatic.com/aistudio/starter-apps/pelican-campus/${slug}.glb`;
     const candidateUrls = [`./assets/glb/${slug}.glb`, gstaticUrl];
+    const nativeTimeout = (typeof window !== "undefined" && window.__nativeSetTimeout) || setTimeout;
     for (const url of candidateUrls) {
+      let timerId = null;
       try {
-        const res = await fetch(url, { cache: "force-cache" });
+        const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+        if (controller) {
+          timerId = nativeTimeout(() => {
+            try {
+              controller.abort();
+            } catch (_e) {}
+          }, 6000);
+        }
+        const res = await fetch(url, {
+          cache: "force-cache",
+          signal: controller ? controller.signal : undefined,
+        });
+        if (timerId) clearTimeout(timerId);
         if (res && res.ok) {
           const fetchedBuf = await res.arrayBuffer();
           if (
@@ -176,10 +196,12 @@ async function parseInlineGlbScene(loader, decodeFn, slug = "") {
             !(slug === "gym_interior_v5" && fetchedBuf.byteLength === 2902288)
           ) {
             raw = new Uint8Array(fetchedBuf);
+            _glbBufferCache.set(slug, raw);
             break;
           }
         }
       } catch (_fetchErr) {
+        if (timerId) clearTimeout(timerId);
         raw = null;
       }
     }
@@ -315,7 +337,7 @@ function fbm2D(x, y) {
  * (100% free of square/polygon edges; falls back to `DataTexture` in headless Node).
  */
 function createBurnoutSmokePuffTexture() {
-  const size = 256;
+  const size = 128;
   const lobes = [
     { cx: 0.0, cy: 0.0, r: 0.68, w: 1.0 },
     { cx: -0.21, cy: -0.13, r: 0.52, w: 0.82 },
@@ -371,28 +393,10 @@ function createBurnoutSmokePuffTexture() {
     }
   }
 
-  if (typeof document !== "undefined") {
-    try {
-      const cvs = document.createElement("canvas");
-      cvs.width = size;
-      cvs.height = size;
-      const ctx = cvs.getContext("2d");
-      if (ctx) {
-        const img = ctx.createImageData(size, size);
-        img.data.set(data);
-        ctx.putImageData(img, 0, 0);
-        const tex = new THREE.CanvasTexture(cvs);
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.needsUpdate = true;
-        return tex;
-      }
-    } catch (_e) {
-      // Fallback to DataTexture below
-    }
-  }
-
   const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
   tex.needsUpdate = true;
   return tex;
 }
@@ -550,27 +554,10 @@ function createVulcanizedSkidMarkTexture() {
       data[idx + 3] = Math.round(alpha * 255);
     }
   }
-  if (typeof document !== "undefined") {
-    try {
-      const cvs = document.createElement("canvas");
-      cvs.width = w;
-      cvs.height = h;
-      const ctx = cvs.getContext("2d");
-      if (ctx) {
-        const img = ctx.createImageData(w, h);
-        img.data.set(data);
-        ctx.putImageData(img, 0, 0);
-        const tex = new THREE.CanvasTexture(cvs);
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.needsUpdate = true;
-        return tex;
-      }
-    } catch (_e) {
-      // Fallback to DataTexture
-    }
-  }
   const tex = new THREE.DataTexture(data, w, h, THREE.RGBAFormat);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
   tex.needsUpdate = true;
   return tex;
 }
@@ -832,39 +819,42 @@ export class DemoCore {
     const STAGE_4_LABEL = "Tuning soundtrack & campus acoustics…";
 
     // =========================================================================
-    // STAGE 1 (0%–45%): Decode & Parse 3D Campus & Hero GLB Assets in Yielded Chunks
+    // STAGE 1 (0%–45%): Essential Startup Assets First + Progressive Campus GLBs
     // =========================================================================
     this._reportPreload(4, STAGE_1_LABEL);
     await this._yieldPreloadFrame();
 
+    // Essential Batch 1 (Hero Pelican, Priority G-Bike V9, TPU 8i, Spin Studio Interior V5)
     const [
       pelicanGlbScene,
       priorityGbikeV9Scene,
-      vehiclesV2Scene,
       tpu8iScene,
+      gymV5Scene,
     ] = await Promise.all([
       parseInlineGlbScene(loader, decodePelicanHeroGlb, "pelican_hero_v3"),
       parseInlineGlbScene(loader, decodePriorityGbikeV9Glb, "priority_gbike_v9"),
-      parseInlineGlbScene(loader, decodeGbikeAndVehiclesV2Glb, "gbike_and_vehicles_v2"),
       parseInlineGlbScene(loader, decodeTpu8iGlb, "tpu_8i"),
+      parseInlineGlbScene(loader, decodeGymInteriorV5Glb, "gym_interior_v5"),
     ]);
-    this._reportPreload(14, STAGE_1_LABEL);
+    this._reportPreload(15, STAGE_1_LABEL);
     await this._yieldPreloadFrame();
 
+    // Progressive Batch 2 (Gradient Canopy, Waymo Gen6, Vehicles V2, Collectibles V2)
     const [
-      gymV5Scene,
       canopyV6Scene,
       waymoV4Scene,
+      vehiclesV2Scene,
       collectiblesV2Scene,
     ] = await Promise.all([
-      parseInlineGlbScene(loader, decodeGymInteriorV5Glb, "gym_interior_v5"),
       parseInlineGlbScene(loader, decodeGradientCanopyV6Glb, "gradient_canopy_v6"),
       parseInlineGlbScene(loader, decodeWaymoGen6V4Glb, "waymo_gen6_v4"),
+      parseInlineGlbScene(loader, decodeGbikeAndVehiclesV2Glb, "gbike_and_vehicles_v2"),
       parseInlineGlbScene(loader, decodeCampusCollectiblesV2Glb, "campus_collectibles_v2"),
     ]);
     this._reportPreload(25, STAGE_1_LABEL);
     await this._yieldPreloadFrame();
 
+    // Progressive Batch 3 (Android Statues, Campus Landmarks, Trees V4, Stan T-Rex V5)
     const [
       androidStatuesV2Scene,
       landmarksV2Scene,
@@ -876,9 +866,10 @@ export class DemoCore {
       parseInlineGlbScene(loader, decodeTreesV4Glb, "trees_v4"),
       parseInlineGlbScene(loader, decodeStanTrexV5Glb, "stan_trex_v5"),
     ]);
-    this._reportPreload(36, STAGE_1_LABEL);
+    this._reportPreload(35, STAGE_1_LABEL);
     await this._yieldPreloadFrame();
 
+    // Progressive Batch 4 (Campus Environment V3, Props & Finale V4, Horizon Arch V5, Props & Bridge V6)
     const [
       campusEnvV3Scene,
       propsV4Scene,
@@ -892,6 +883,9 @@ export class DemoCore {
     ]);
     this._reportPreload(42, STAGE_1_LABEL);
     await this._yieldPreloadFrame();
+
+    // Release raw ArrayBuffer cache after GLB scenes are parsed to keep 4GB Android RAM footprint lean
+    _glbBufferCache.clear();
 
     // De-plasticize legacy V2/V3/V4 prop materials (`@pbr-atmosphere-v6`) so roughness/envMapIntensity match V7 PBR realism!
     if (typeof deplasticizeCampusPropMaterials === "function") {
@@ -1717,37 +1711,17 @@ export class DemoCore {
         if (this._skidSecondary) this._skidSecondary.visible = prevSkid2Vis;
         if (this.stanRoarRippleMesh) this.stanRoarRippleMesh.visible = prevRippleVis;
       } else {
-        // Fast non-blocking interactive mobile & desktop pre-warm (eliminates 92%–100% GPU freeze!):
-        // Uses a 64x36 micro-viewport and non-blocking shader compile (`<= 380ms` cap) without 10x full-res shadow/burnout loops.
+        // Fast non-blocking interactive mobile & desktop pre-warm (eliminates 88%–100% double shadow-bake stall!):
+        // Uses a 64x36 micro-viewport and non-blocking shader compile (`<= 320ms` cap), then warms at target boot time.
         this.renderer.setViewport(0, 0, 64, 36);
         this.renderer.setScissor(0, 0, 64, 36);
         this.renderer.setScissorTest(true);
         try {
           await Promise.race([
             compileScenePrograms(),
-            new Promise((r) => nativeWait(r, 380)),
+            new Promise((r) => nativeWait(r, 320)),
           ]);
-          this._reportPreload(80, STAGE_3_LABEL);
-          await this._yieldPreloadFrame();
-
-          state.elapsedTime = 11.5;
-          state.sequenceTime = 11.5;
-          const outSnap = this.game.seekToTime(11.5);
-          this._syncSceneFromSnapshot(outSnap, 0.0, { snapCamera: true });
-          this.scene.updateMatrixWorld(true);
-          if (this._swMuxReady) this._updateSoftwarePointLightMultiplexer();
-          if (this.v5Lighting) {
-            this.v5Lighting.updateTwoTierShadows?.({
-              heroPos: outSnap,
-              camera: this.camera,
-              forceStaticRebuild: true,
-              isSoftwareRenderer: false,
-            });
-          }
-          this.renderer.shadowMap.autoUpdate = true;
-          this.renderer.shadowMap.needsUpdate = true;
-          this.renderer.render(this.scene, this.camera);
-          this._reportPreload(88, STAGE_3_LABEL);
+          this._reportPreload(84, STAGE_3_LABEL);
           await this._yieldPreloadFrame();
         } finally {
           this.renderer.setScissorTest(prevScissorTest);
@@ -1755,6 +1729,8 @@ export class DemoCore {
           this.renderer.setScissor(prevScissor);
           this.resize();
         }
+        this._reportPreload(88, STAGE_3_LABEL);
+        await this._yieldPreloadFrame();
       }
       this.renderer.shadowMap.autoUpdate = true;
       this._xrayPrewarmed = true;
@@ -4729,6 +4705,13 @@ diffuseColor.a *= vPuffAlpha;`
       });
     }
 
+    if (this.world) {
+      this.world._cullForceRebuild = true;
+      if (this.world.v5Grass?.cullForCamera) {
+        this.world.v5Grass.cullForCamera(this.camera, isFast1080pCpuTier, tier);
+      }
+    }
+
     this.resize();
     if (this.renderer && this.renderer.shadowMap) {
       this.renderer.shadowMap.needsUpdate = true;
@@ -5914,7 +5897,7 @@ diffuseColor.a *= vPuffAlpha;`
 
       // Spatial 14m x 14m frustum & distance culling for 156,000 grass tufts (zero blades removed!)
       if (this.world?.v5Grass?.cullForCamera) {
-        this.world.v5Grass.cullForCamera(this.camera, isFast1080pSw);
+        this.world.v5Grass.cullForCamera(this.camera, isFast1080pSw, this.qualityTier);
       }
 
       // Priority 0.2: Distance-modulate local PointLight intensities via fixed-slot multiplexer across ALL renderers

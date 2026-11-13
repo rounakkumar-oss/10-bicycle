@@ -623,7 +623,7 @@ function boot() {
     uiController.syncAll();
   }
 
-  // 5. Live 60fps requestAnimationFrame loop (started ONLY after `#campus-preloader` curtain handoff settles)
+  // 5. Live requestAnimationFrame loop with thermal/FPS cap support
   function loop(timestamp) {
     if (window.__externalClock) {
       rafId = null;
@@ -632,7 +632,18 @@ function boot() {
     if (lastRafTimestamp === null) {
       lastRafTimestamp = timestamp;
     }
-    const rawDt = (timestamp - lastRafTimestamp) / 1000;
+    const targetFpsCap = Number(window.__targetFpsCap) || 0;
+    const elapsedMs = timestamp - lastRafTimestamp;
+    if (targetFpsCap > 0 && targetFpsCap < 60) {
+      const minFrameMs = 1000 / targetFpsCap - 1.2;
+      if (elapsedMs >= 0 && elapsedMs < minFrameMs) {
+        if (!window.__externalClock) {
+          rafId = requestAnimationFrame(loop);
+        }
+        return;
+      }
+    }
+    const rawDt = elapsedMs / 1000;
     lastRafTimestamp = timestamp;
     const dt = Math.min(Math.max(rawDt, 0), 0.1);
 
@@ -693,7 +704,7 @@ function boot() {
       (typeof navigator !== "undefined" && navigator.webdriver)
     )
       ? 600000
-      : 180000;
+      : 15000;
   readyGatePromise = Promise.race([
     Promise.all([fontsSettled, coreAssetsSettled]),
     new Promise((r) => nativeWait(r, readyTimeoutMs)),

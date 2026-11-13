@@ -1091,18 +1091,17 @@ export function createAAAInstancedGrassSystem(THREE, options = {}) {
       const mowStripe = 0.5 + 0.5 * Math.sin(stripeCoord * Math.PI);
 
       posVec.set(wx, groundY - 0.008, wz);
-      euler.set((rng() - 0.5) * 0.12, yaw, (rng() - 0.5) * 0.10);
-      quat.setFromEuler(euler);
-      scaleVec.set(wScale, hScale, wScale);
-      dummyMat.compose(posVec, quat, scaleVec);
-
-      const mElems = new Float32Array(16);
-      dummyMat.toArray(mElems, 0);
+      const pX = (rng() - 0.5) * 0.12;
+      const rZ = (rng() - 0.5) * 0.10;
       tuftRecords.push({
         wx,
         wy: groundY - 0.008,
         wz,
-        mElems,
+        pX,
+        yaw,
+        rZ,
+        wScale,
+        hScale,
         s0: 0.55 + rng() * 0.95, // archCurvature
         s1: rng(),               // windPhase
         s2: rng(),               // toneJitter
@@ -1123,18 +1122,15 @@ export function createAAAInstancedGrassSystem(THREE, options = {}) {
     const wx = -118.0 + Math.cos(th) * r;
     const wz = -1.0 * 50.0 + Math.sin(th) * r;
     const groundY = terrainHeightFn(wx, wz);
-    posVec.set(wx, groundY - 0.008, wz);
-    euler.set(0, rng() * Math.PI * 2.0, 0);
-    quat.setFromEuler(euler);
-    scaleVec.set(1.0, 0.9 + rng() * 0.4, 1.0);
-    dummyMat.compose(posVec, quat, scaleVec);
-    const mElems = new Float32Array(16);
-    dummyMat.toArray(mElems, 0);
     tuftRecords.push({
       wx,
       wy: groundY - 0.008,
       wz,
-      mElems,
+      pX: 0.0,
+      yaw: rng() * Math.PI * 2.0,
+      rZ: 0.0,
+      wScale: 1.0,
+      hScale: 0.9 + rng() * 0.4,
       s0: 0.85,
       s1: rng(),
       s2: rng(),
@@ -1158,6 +1154,7 @@ export function createAAAInstancedGrassSystem(THREE, options = {}) {
     }
     bucket.push(rec);
   }
+  tuftRecords.length = 0;
 
   const grassGroup = new THREE.Group();
   grassGroup.name = "V5_AAA_Instanced_Grass_132k";
@@ -1202,9 +1199,15 @@ export function createAAAInstancedGrassSystem(THREE, options = {}) {
     tMesh.count = n;
     tMesh.userData.isV5GrassTile = true;
 
+    const matArr = tMesh.instanceMatrix.array;
     for (let j = 0; j < n; j++) {
       const rec = list[j];
-      tMesh.instanceMatrix.array.set(rec.mElems, j * 16);
+      posVec.set(rec.wx, rec.wy, rec.wz);
+      euler.set(rec.pX, rec.yaw, rec.rZ);
+      quat.setFromEuler(euler);
+      scaleVec.set(rec.wScale, rec.hScale, rec.wScale);
+      dummyMat.compose(posVec, quat, scaleVec);
+      dummyMat.toArray(matArr, j * 16);
       const j4 = j * 4;
       tStyle[j4] = rec.s0;
       tStyle[j4 + 1] = rec.s1;
@@ -1235,21 +1238,51 @@ export function createAAAInstancedGrassSystem(THREE, options = {}) {
     grassGroup.add(tMesh);
     tileEntries.push({ mesh: tMesh, geom: tGeom, cx, cy, cz, rad, fullCount: n });
   }
+  tileBuckets.clear();
 
   const baseMaxDrawRadius = Math.min(options.maxDrawRadiusM ?? 82.0, 84.0);
   const baseThinMinKeep = options.thinMinKeep ?? 0.22;
   const baseThinWidthBoost = options.thinWidthBoost ?? 1.45;
-  function cullForCamera(camera, isFast1080pSoftware = false) {
+  function cullForCamera(camera, isFast1080pSoftware = false, qualityTier = "high") {
     if (!camera || !grassGroup.visible) return;
     syncFocusFromCamera(camera);
-    // V7 Section 1C: GPU vertex-shader handles smooth 28m..75m thinning (keepProb 1.0 -> 0.22 + 1.45x width)
-    // with ZERO per-frame CPU `mesh.count` churn on hardware GPU; on 1080p CPU SwiftShader (`isFast1080pSoftware`),
-    // trim `te.mesh.count` directly (prefix of uniform RNG scatter = zero buffer upload) to skip wasted degenerate CPU vertices!
-    const maxCamDist = isFast1080pSoftware ? 36.0 : baseMaxDrawRadius;
-    uniforms.uThinStartM.value = isFast1080pSoftware ? 0.0 : (options.thinStartM ?? 28.0);
-    uniforms.uThinEndM.value = isFast1080pSoftware ? 28.0 : (options.thinEndM ?? 75.0);
-    uniforms.uThinMinKeep.value = isFast1080pSoftware ? 1.0 : baseThinMinKeep;
-    uniforms.uThinWidthBoost.value = isFast1080pSoftware ? 1.92 : baseThinWidthBoost;
+    const isLow = !isFast1080pSoftware && qualityTier === "low";
+    const isMed = !isFast1080pSoftware && qualityTier === "medium";
+    const maxCamDist = isFast1080pSoftware
+      ? 36.0
+      : isLow
+        ? 54.0
+        : isMed
+          ? 68.0
+          : baseMaxDrawRadius;
+    uniforms.uThinStartM.value = isFast1080pSoftware
+      ? 0.0
+      : isLow
+        ? 16.0
+        : isMed
+          ? 22.0
+          : (options.thinStartM ?? 28.0);
+    uniforms.uThinEndM.value = isFast1080pSoftware
+      ? 28.0
+      : isLow
+        ? 48.0
+        : isMed
+          ? 62.0
+          : (options.thinEndM ?? 75.0);
+    uniforms.uThinMinKeep.value = isFast1080pSoftware
+      ? 1.0
+      : isLow
+        ? 0.18
+        : isMed
+          ? 0.20
+          : baseThinMinKeep;
+    uniforms.uThinWidthBoost.value = isFast1080pSoftware
+      ? 1.92
+      : isLow
+        ? 1.65
+        : isMed
+          ? 1.52
+          : baseThinWidthBoost;
     uniforms.uMaxDrawRadius.value = maxCamDist;
     const camX = camera.position.x;
     const camY = camera.position.y;
@@ -1293,6 +1326,18 @@ export function createAAAInstancedGrassSystem(THREE, options = {}) {
         const tKeep = Math.min(1.0, Math.max(0.0, (nearEdge - 6.0) / 26.0));
         const sKeep = tKeep * tKeep * (3.0 - 2.0 * tKeep);
         const frac = 0.28 * (1.0 - 0.78 * sKeep);
+        te.mesh.count = Math.max(1, Math.round(te.fullCount * frac));
+      } else if (isLow) {
+        const nearEdge = Math.max(0.0, dist - te.rad * 0.5);
+        const tKeep = Math.min(1.0, Math.max(0.0, (nearEdge - 10.0) / 38.0));
+        const sKeep = tKeep * tKeep * (3.0 - 2.0 * tKeep);
+        const frac = 0.76 * (1.0 - 0.62 * sKeep);
+        te.mesh.count = Math.max(1, Math.round(te.fullCount * frac));
+      } else if (isMed) {
+        const nearEdge = Math.max(0.0, dist - te.rad * 0.5);
+        const tKeep = Math.min(1.0, Math.max(0.0, (nearEdge - 18.0) / 44.0));
+        const sKeep = tKeep * tKeep * (3.0 - 2.0 * tKeep);
+        const frac = 0.92 * (1.0 - 0.42 * sKeep);
         te.mesh.count = Math.max(1, Math.round(te.fullCount * frac));
       } else if (te.mesh.count !== te.fullCount) {
         te.mesh.count = te.fullCount;

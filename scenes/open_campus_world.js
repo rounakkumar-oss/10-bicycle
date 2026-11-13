@@ -12364,16 +12364,30 @@ export class OpenCampusWorld {
       return 1.0 - (1.0 - radialClear) * uWeight;
     };
 
-    const isLowQuality = globalState.qualityTier === "low";
+    const activeTier = globalState.qualityTier || "low";
+    const isLowQuality = activeTier === "low";
+    const isMedQuality = activeTier === "medium";
     const inViewCone = (tx, tz, maxDist, closeRad = 28.0, minDot = 0.20) => {
       const dHero = Math.hypot(tx - snap.x, tz - snap.z);
       const dCam = Math.hypot(tx - camX, tz - camZ);
       if (isTopDownCam) {
         return dHero <= topDownRadius || dCam <= topDownRadius;
       }
-      const effClose = isLowQuality ? Math.min(closeRad, 14.0) : closeRad;
-      const effMax = isLowQuality ? Math.min(maxDist, 110.0) : maxDist;
-      const effMinDot = isLowQuality ? Math.max(minDot, 0.35) : minDot;
+      const effClose = isLowQuality
+        ? Math.min(closeRad, 14.0)
+        : isMedQuality
+          ? Math.min(closeRad, 22.0)
+          : closeRad;
+      const effMax = isLowQuality
+        ? Math.min(maxDist, 110.0)
+        : isMedQuality
+          ? Math.min(maxDist, 175.0)
+          : maxDist;
+      const effMinDot = isLowQuality
+        ? Math.max(minDot, 0.35)
+        : isMedQuality
+          ? Math.max(minDot, 0.26)
+          : minDot;
       if (dCam <= 8.5 || dHero <= effClose * 0.5) return true;
       if (dCam > effMax && dHero > effMax) return false;
       const dot = ((tx - camX) * camFwdX + (tz - camZ) * camFwdZ) / (dCam + 1e-4);
@@ -12427,30 +12441,32 @@ export class OpenCampusWorld {
 
     // PRIORITY 0.3A: Dirty-Check Gate on `treeDynamicBatches` and `propDynamicBatches`!
     // Recompute `inViewCone` / `sweptShadowInCone` / `evalSightlineClearFactor` and upload `instanceMatrix` ONLY when:
-    //   1) camera moves `> 0.35m`, OR
-    //   2) camera forward rotates `> 1.2 deg` (`dot < cos(1.2 deg)`), OR
-    //   3) `enclosedInGym` or `allowWorldShadows` (or `isTopDownCam` / `_isFast1080pSw`) flips, OR
+    //   1) camera moves `> moveThreshM`, OR
+    //   2) camera forward rotates `> rotThresh`, OR
+    //   3) `enclosedInGym` or `allowWorldShadows` (or `isTopDownCam` / `_isFast1080pSw` / `qualityTier`) flips, OR
     //   4) an active foreground sightline fade factor transitions by `> 0.01`, OR
     //   5) `forceRebuild` (`this._cullForceRebuild` / `globalState.forceCullRebuild`) is true!
     const fastSwTrees = Boolean(this._isFast1080pSw);
-    const COS_1P2_DEG = 0.99978068; // Math.cos(1.2 * Math.PI / 180)
+    const moveThreshM = isLowQuality ? 0.85 : isMedQuality ? 0.52 : 0.35;
+    const cosRotLimit = isLowQuality ? 0.99904822 : 0.99978068; // 2.5 deg in low, 1.2 deg in med/high
     const camMoved =
       !Number.isFinite(this._lastCullCamX) ||
       Math.hypot(
         camX - this._lastCullCamX,
         camY - this._lastCullCamY,
         camZ - this._lastCullCamZ
-      ) > 0.35;
+      ) > moveThreshM;
     const camRotated =
       camFwd3X * this._lastCullFwdX +
         camFwd3Y * this._lastCullFwdY +
         camFwd3Z * this._lastCullFwdZ <
-      COS_1P2_DEG;
+      cosRotLimit;
     const stateFlipped =
       enclosedInGym !== this._lastCullEnclosedInGym ||
       allowWorldShadows !== this._lastCullAllowShadows ||
       isTopDownCam !== this._lastCullIsTopDown ||
-      fastSwTrees !== this._lastCullFastSw;
+      fastSwTrees !== this._lastCullFastSw ||
+      activeTier !== this._lastCullQualityTier;
     const forceRebuild = Boolean(this._cullForceRebuild || globalState?.forceCullRebuild);
 
     let sightlineTransitioning = false;
@@ -12520,13 +12536,14 @@ export class OpenCampusWorld {
       this._lastCullAllowShadows = allowWorldShadows;
       this._lastCullIsTopDown = isTopDownCam;
       this._lastCullFastSw = fastSwTrees;
+      this._lastCullQualityTier = activeTier;
       let anyActiveFade = false;
 
       if (this.treeDynamicBatches) {
-        const heroShadowRad = fastSwTrees ? 40.0 : 80.0;
+        const heroShadowRad = fastSwTrees || isLowQuality ? 40.0 : isMedQuality ? 60.0 : 80.0;
         const swSweptMaxRad = 68.0;
-        const treeConeMax = fastSwTrees ? 132.0 : 315.0;
-        const treeConeClose = fastSwTrees ? 28.0 : 38.0;
+        const treeConeMax = fastSwTrees ? 132.0 : isLowQuality ? 128.0 : isMedQuality ? 195.0 : 315.0;
+        const treeConeClose = fastSwTrees || isLowQuality ? 28.0 : 38.0;
         for (const batch of this.treeDynamicBatches) {
           let nearCount = 0;
           let farCount = 0;

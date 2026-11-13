@@ -762,22 +762,59 @@ export function initDownloadAndMobileSystem() {
     }
   }
 
+  const fpsSelect = document.getElementById("apk-fps-select");
+  if (fpsSelect) {
+    fpsSelect.addEventListener("change", () => {
+      const val = fpsSelect.value;
+      if (val === "battery") {
+        window.__targetFpsCap = 45;
+      } else if (val === "120fps") {
+        window.__targetFpsCap = 120;
+      } else {
+        window.__targetFpsCap = 60;
+      }
+      setStatus(
+        `Target frame pacing set to ${
+          val === "battery"
+            ? "Battery Saver (45 FPS thermal cap)"
+            : val === "120fps"
+              ? "120 FPS ProMotion / High-Refresh"
+              : "60 FPS Locked"
+        }.`,
+        "ready"
+      );
+    });
+  }
+
   for (const btn of touchButtons) {
     const keyName = btn.getAttribute("data-touch-key");
     if (!keyName) continue;
     const press = (e) => {
       if (e.cancelable) e.preventDefault();
+      if (typeof btn.setPointerCapture === "function" && e.pointerId !== undefined) {
+        try {
+          btn.setPointerCapture(e.pointerId);
+        } catch (_err) {}
+      }
       btn.classList.add("is-pressed");
       setTouchKey(keyName, true);
     };
     const release = (e) => {
       if (e && e.cancelable) e.preventDefault();
+      if (typeof btn.releasePointerCapture === "function" && e && e.pointerId !== undefined) {
+        try {
+          if (btn.hasPointerCapture?.(e.pointerId)) {
+            btn.releasePointerCapture(e.pointerId);
+          }
+        } catch (_err) {}
+      }
       btn.classList.remove("is-pressed");
       setTouchKey(keyName, false);
     };
-    btn.addEventListener("pointerdown", press);
+    btn.addEventListener("pointerdown", press, { passive: false });
     btn.addEventListener("pointerup", release);
     btn.addEventListener("pointercancel", release);
+    btn.addEventListener("lostpointercapture", release);
     btn.addEventListener("pointerleave", release);
   }
 
