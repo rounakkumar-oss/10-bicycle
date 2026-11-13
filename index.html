@@ -379,7 +379,15 @@
 
             <span class="pill-group-divider" aria-hidden="true"></span>
 
-            <button type="button" class="util-btn util-apk-btn tabular-nums" id="btn-download-hub" data-demo-id="open-download-hub" aria-expanded="false" aria-controls="download-apk-modal" title="Download APK Directly [G]">
+            <div class="segmented-well quality-switcher-well tabular-nums" id="quality-switcher-well" role="tablist" aria-label="Graphics Quality">
+              <button type="button" class="seg-pill quality-pill active tabular-nums" role="tab" aria-selected="true" data-demo-id="quality-low" data-quality="low" title="Low Graphics (Fastest FPS · Realistic 3D Models Preserved)">LOW</button>
+              <button type="button" class="seg-pill quality-pill tabular-nums" role="tab" aria-selected="false" data-demo-id="quality-medium" data-quality="medium" title="Medium Graphics (Balanced Shadows &amp; Resolution)">MED</button>
+              <button type="button" class="seg-pill quality-pill tabular-nums" role="tab" aria-selected="false" data-demo-id="quality-high" data-quality="high" title="High Graphics (4K Shadows · HDR Post-FX · Bloom)">HIGH</button>
+            </div>
+
+            <span class="pill-group-divider" aria-hidden="true"></span>
+
+            <button type="button" class="util-btn util-apk-btn tabular-nums" id="btn-download-hub" data-demo-id="open-download-hub" aria-expanded="false" aria-controls="download-apk-modal" title="Settings &amp; Download APK [G]">
               <svg class="btn-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                 <polyline points="7 10 12 15 17 10"></polyline>
@@ -572,8 +580,16 @@
             </button>
           </div>
 
-          <!-- Build Target & Frame Rate Selector Bar -->
+          <!-- Graphics Quality, Build Target & Frame Rate Selector Bar -->
           <div class="download-config-bar">
+            <label class="config-field">
+              <span class="config-label">GRAPHICS QUALITY (3D MODELS PRESERVED)</span>
+              <select id="graphics-quality-select" class="config-select">
+                <option value="low" selected>LOW (Default · Smooth Mobile FPS · Realistic Models)</option>
+                <option value="medium">MEDIUM (Balanced 2K Shadows &amp; Lighting)</option>
+                <option value="high">HIGH (4K Shadows · HDR Bloom · DoF Post-FX)</option>
+              </select>
+            </label>
             <label class="config-field">
               <span class="config-label">TARGET MOBILE ABI</span>
               <select id="apk-arch-select" class="config-select">
@@ -585,7 +601,7 @@
             <label class="config-field">
               <span class="config-label">RENDER TARGET</span>
               <select id="apk-fps-select" class="config-select">
-                <option value="60fps">60 FPS Locked (High Quality)</option>
+                <option value="60fps">60 FPS Locked (Smooth Mobile)</option>
                 <option value="120fps">120Hz ProMotion / High-Refresh</option>
                 <option value="battery">Mobile Battery Saver (45 FPS)</option>
               </select>

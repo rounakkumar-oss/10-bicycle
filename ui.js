@@ -353,6 +353,8 @@ export function initUI() {
   const btnXray = document.getElementById("btn-xray");
   const btnAudio = document.getElementById("btn-audio");
   const btnReset = document.getElementById("btn-reset");
+  const qualityPills = Array.from(document.querySelectorAll(".quality-pill"));
+  const graphicsQualitySelect = document.getElementById("graphics-quality-select");
 
   // 3. Top-Right Kinetic Event Micro-Callout
   const eventCallout = document.getElementById("event-callout");
@@ -639,6 +641,21 @@ export function initUI() {
     const isOn = Boolean(enabled);
     btnAudio.classList.toggle("is-active", isOn);
     btnAudio.setAttribute("aria-pressed", isOn ? "true" : "false");
+  }
+
+  function syncQualityPills(tier = state.qualityTier) {
+    const activeTier = ["low", "medium", "high"].includes(String(tier).toLowerCase())
+      ? String(tier).toLowerCase()
+      : "low";
+    for (let i = 0; i < qualityPills.length; i++) {
+      const btn = qualityPills[i];
+      const isMatch = btn.dataset.quality === activeTier;
+      btn.classList.toggle("active", isMatch);
+      btn.setAttribute("aria-selected", isMatch ? "true" : "false");
+    }
+    if (graphicsQualitySelect && graphicsQualitySelect.value !== activeTier) {
+      graphicsQualitySelect.value = activeTier;
+    }
   }
 
   function syncMinimapDomState() {
@@ -1909,6 +1926,28 @@ export function initUI() {
     });
   }
 
+  for (let i = 0; i < qualityPills.length; i++) {
+    const btn = qualityPills[i];
+    btn.addEventListener("click", () => {
+      const targetTier = btn.dataset.quality || "low";
+      recordDomClick(btn.dataset.demoId || `quality-${targetTier}`);
+      dispatchAction(DEMO_ACTIONS.SET_QUALITY, {
+        qualityTier: targetTier,
+        forceExternal: true,
+      });
+    });
+  }
+
+  if (graphicsQualitySelect) {
+    graphicsQualitySelect.addEventListener("change", () => {
+      const targetTier = graphicsQualitySelect.value || "low";
+      dispatchAction(DEMO_ACTIONS.SET_QUALITY, {
+        qualityTier: targetTier,
+        forceExternal: true,
+      });
+    });
+  }
+
   if (btnExpandMinimap) {
     btnExpandMinimap.addEventListener("click", () => {
       recordDomClick("expand-minimap");
@@ -2095,7 +2134,8 @@ export function initUI() {
     syncNooglerHatButton();
   });
 
-  bus.addEventListener(DEMO_EVENTS.QUALITY_CHANGED, () => {
+  bus.addEventListener(DEMO_EVENTS.QUALITY_CHANGED, (e) => {
+    syncQualityPills(e.detail?.qualityTier || state.qualityTier);
     if (state.xrayEnabled) {
       const summary = deriveTourSummary(state.segmentLedger, state.kinematics, state.tpuLedger);
       renderXrayTelemetry(summary, true);
@@ -2118,6 +2158,7 @@ export function initUI() {
   function syncAll() {
     syncModeAndChapterPills();
     syncCameraPills();
+    syncQualityPills(state.qualityTier);
     syncAudioButton(state.audioEnabled);
     syncMinimapVisibility();
     syncXrayCard();
@@ -2311,6 +2352,18 @@ export function initUI() {
     if (id === "action-reset" || id === "btn-reset") {
       if (!wasJustClicked("action-reset") || options.force) {
         performFullReset();
+        return true;
+      }
+      return false;
+    }
+
+    if (/^quality-(low|medium|high)$/.test(id)) {
+      const targetTier = id.replace(/^quality-/, "");
+      if (state.qualityTier !== targetTier || options.force) {
+        dispatchAction(DEMO_ACTIONS.SET_QUALITY, {
+          qualityTier: targetTier,
+          forceExternal: true,
+        });
         return true;
       }
       return false;

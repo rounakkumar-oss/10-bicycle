@@ -457,6 +457,7 @@ export function initDownloadAndMobileSystem() {
   const btnCopyGitCmd = document.getElementById("btn-copy-git-cmd");
   const btnToggleTouchPad = document.getElementById("btn-toggle-touch-controls");
 
+  const selectQuality = document.getElementById("graphics-quality-select");
   const selectArch = document.getElementById("apk-arch-select");
   const selectFps = document.getElementById("apk-fps-select");
   const statusBanner = document.getElementById("download-status-banner");
@@ -716,6 +717,16 @@ export function initDownloadAndMobileSystem() {
         navigator.clipboard.writeText(cmd).catch(() => {});
       }
       showStatus("Copied GitHub + Capacitor Android APK build command to clipboard!", "success");
+    });
+  }
+
+  if (selectQuality) {
+    selectQuality.addEventListener("change", () => {
+      const qVal = (selectQuality.value || "low").toUpperCase();
+      showStatus(
+        `Graphics Quality set to ${qVal} (All 16 realistic 3D models & 2K PBR textures preserved).`,
+        "success"
+      );
     });
   }
 

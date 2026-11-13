@@ -616,9 +616,21 @@ export class DemoCore {
     this._burnoutActivePuffs = 0;
     this._prevInputMirror = { up: false, down: false, left: false, right: false };
 
-    this.qualityTier = "high";
-    this.maxDprForQuality = 2.0;
-    this._governedRetinaDprCap = 2.0;
+    this.isMobileDevice =
+      typeof navigator !== "undefined" &&
+      /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || "");
+    this.isWeakMobileDevice =
+      this.isMobileDevice &&
+      typeof navigator !== "undefined" &&
+      ((Number(navigator.hardwareConcurrency) > 0 && Number(navigator.hardwareConcurrency) <= 4) ||
+        (Number(navigator.deviceMemory) > 0 && Number(navigator.deviceMemory) <= 4) ||
+        /android/i.test(navigator.userAgent || ""));
+
+    this.qualityTier = "low";
+    this.maxDprForQuality = this.isWeakMobileDevice ? 0.9 : 1.0;
+    this._governedRetinaDprCap = this.maxDprForQuality;
+    this._particleQualityScale = 0.35;
+    this._frame0Rendered = false;
     this._dprFrameDeltaRing = new Float32Array(60);
     this._dprFrameDeltaIdx = 0;
     this._dprFrameDeltaCount = 0;
@@ -1037,6 +1049,8 @@ export class DemoCore {
       this.glbLoadedStatus.campusLandmarksV2 = Boolean(landmarksV2Scene);
     }
 
+    await this._yieldPreloadFrame();
+
     if (treesV4Scene) {
       this.world.applyTreesV4Glb?.(treesV4Scene);
       this.glbLoadedStatus.treesV4 = true;
@@ -1058,6 +1072,8 @@ export class DemoCore {
       this.glbLoadedStatus.waymoGen6V4 = Boolean(okW4);
       this.glbLoadedStatus.waymoGen6V3 = Boolean(okW4);
     }
+
+    await this._yieldPreloadFrame();
 
     // Attach V5 Luxury Spin Studio (`59 / AA` flat hex dumbbell, `0` water bottles), Articulated Stan T-Rex + Cafe Sets, and Horizon/Pavilions/Berms!
     if (gymV5Scene) {
@@ -1324,7 +1340,9 @@ export class DemoCore {
     }
 
     const texList = Array.from(uniqueTextures);
-    const TEX_BATCH = 24;
+    const TEX_BATCH = this.isMobileDevice ? 4 : 8;
+    const targetAniso =
+      this.qualityTier === "low" ? 1 : this.qualityTier === "medium" ? 4 : 8;
     const isAutomatedClockBoot = Boolean(
       typeof window !== "undefined" && (window.__virtualClock || window.__externalClock)
     );
@@ -1351,17 +1369,30 @@ export class DemoCore {
       this._reportPreload(70, STAGE_2_LABEL);
       await this._yieldPreloadFrame();
     } else if (typeof this.renderer?.initTexture === "function" && texList.length > 0) {
+      let sliceStartMs =
+        typeof performance !== "undefined" ? performance.now() : Date.now();
       for (let ti = 0; ti < texList.length; ti++) {
         const tx = texList[ti];
         try {
+          if (tx && !tx.isCubeTexture) {
+            tx.anisotropy = targetAniso;
+          }
           if (tx && (tx.image || (Array.isArray(tx.mipmaps) && tx.mipmaps.length > 0))) {
             this.renderer.initTexture(tx);
           }
         } catch (_texErr) {}
-        if ((ti + 1) % TEX_BATCH === 0 || ti === texList.length - 1) {
+        const nowMs =
+          typeof performance !== "undefined" ? performance.now() : Date.now();
+        if (
+          (ti + 1) % TEX_BATCH === 0 ||
+          nowMs - sliceStartMs > 9.5 ||
+          ti === texList.length - 1
+        ) {
           const frac = (ti + 1) / texList.length;
           this._reportPreload(52 + frac * 18, STAGE_2_LABEL);
           await this._yieldPreloadFrame();
+          sliceStartMs =
+            typeof performance !== "undefined" ? performance.now() : Date.now();
         }
       }
     } else {
@@ -1635,16 +1666,13 @@ export class DemoCore {
         if (this._skidPrimary) this._skidPrimary.visible = prevSkid1Vis;
         if (this._skidSecondary) this._skidSecondary.visible = prevSkid2Vis;
         if (this.stanRoarRippleMesh) this.stanRoarRippleMesh.visible = prevRippleVis;
-      } else {
-        // Hardware GPU full native pre-warm across all 4 landmark poses + X-Ray pass!
-        // (a) Spin Studio `"AA"` Dumbbell opening shot (`t = 0.2s` + `t = 6.2s` indoor Pelican & skid marks)
+      } else if (urlForceLoader) {
+        // Explicit `?forceLoader=1` full hardware GPU pre-warm across all 4 landmark poses + X-Ray pass
         renderPrewarmPose(0.2, { forceShadows: true });
         renderPrewarmPose(6.2, { forceShadows: false });
         this._reportPreload(76, STAGE_3_LABEL);
         await this._yieldPreloadFrame();
 
-        // (b) Outdoor Gradient Canopy breakout (`t = 11.5s`, pinwheels, Waymo, 3D grass, glass shards, sky/horizon)
-        // + full scene WebGL program compile + Android Sculpture Lawn (`t = 23.0s`)
         renderPrewarmPose(11.5, { forceShadows: true });
         await compileScenePrograms();
         this._reportPreload(81, STAGE_3_LABEL);
@@ -1656,7 +1684,6 @@ export class DemoCore {
         this._reportPreload(85, STAGE_3_LABEL);
         await this._yieldPreloadFrame();
 
-        // (c) Bay View water/ramp (`t = 51.0s` + `58.5s` bridge) + (d) Shoreline Sunset Finale (`t = 68.15s` & `71.2s`)
         renderPrewarmPose(51.0, { forceShadows: hwForceShadows });
         renderPrewarmPose(58.5, { forceShadows: hwForceShadows });
         renderPrewarmPose(68.15, { forceShadows: hwForceShadows });
@@ -1664,7 +1691,6 @@ export class DemoCore {
         this._reportPreload(89, STAGE_3_LABEL);
         await this._yieldPreloadFrame();
 
-        // X-Ray cutaway pass on ALL GPUs (hardware WebGL AND software renderer!) so toggling `X` never hitches!
         const firstWaymoVis = this.world?.waymoVisuals?.[0] || null;
         const prevWaymoRootVis = firstWaymoVis?.root ? firstWaymoVis.root.visible : false;
         const prevYieldRingVis = firstWaymoVis?.yieldRing ? firstWaymoVis.yieldRing.visible : false;
@@ -1690,6 +1716,45 @@ export class DemoCore {
         if (this._skidPrimary) this._skidPrimary.visible = prevSkid1Vis;
         if (this._skidSecondary) this._skidSecondary.visible = prevSkid2Vis;
         if (this.stanRoarRippleMesh) this.stanRoarRippleMesh.visible = prevRippleVis;
+      } else {
+        // Fast non-blocking interactive mobile & desktop pre-warm (eliminates 92%–100% GPU freeze!):
+        // Uses a 64x36 micro-viewport and non-blocking shader compile (`<= 380ms` cap) without 10x full-res shadow/burnout loops.
+        this.renderer.setViewport(0, 0, 64, 36);
+        this.renderer.setScissor(0, 0, 64, 36);
+        this.renderer.setScissorTest(true);
+        try {
+          await Promise.race([
+            compileScenePrograms(),
+            new Promise((r) => nativeWait(r, 380)),
+          ]);
+          this._reportPreload(80, STAGE_3_LABEL);
+          await this._yieldPreloadFrame();
+
+          state.elapsedTime = 11.5;
+          state.sequenceTime = 11.5;
+          const outSnap = this.game.seekToTime(11.5);
+          this._syncSceneFromSnapshot(outSnap, 0.0, { snapCamera: true });
+          this.scene.updateMatrixWorld(true);
+          if (this._swMuxReady) this._updateSoftwarePointLightMultiplexer();
+          if (this.v5Lighting) {
+            this.v5Lighting.updateTwoTierShadows?.({
+              heroPos: outSnap,
+              camera: this.camera,
+              forceStaticRebuild: true,
+              isSoftwareRenderer: false,
+            });
+          }
+          this.renderer.shadowMap.autoUpdate = true;
+          this.renderer.shadowMap.needsUpdate = true;
+          this.renderer.render(this.scene, this.camera);
+          this._reportPreload(88, STAGE_3_LABEL);
+          await this._yieldPreloadFrame();
+        } finally {
+          this.renderer.setScissorTest(prevScissorTest);
+          this.renderer.setViewport(prevViewport);
+          this.renderer.setScissor(prevScissor);
+          this.resize();
+        }
       }
       this.renderer.shadowMap.autoUpdate = true;
       this._xrayPrewarmed = true;
@@ -1764,6 +1829,7 @@ export class DemoCore {
       }
       this.renderer.shadowMap.needsUpdate = true;
       this.renderer.render(this.scene, this.camera);
+      this._frame0Rendered = true;
       this._wasSkippingDraw = false;
     } else {
       this._wasSkippingDraw = true;
@@ -1779,10 +1845,21 @@ export class DemoCore {
     // =========================================================================
     // STAGE 4 (92%–100%): Pre-Build / Decode Procedural & Lyria WebAudio Buffers
     // =========================================================================
-    this._reportPreload(95, STAGE_4_LABEL);
+    this._reportPreload(96, STAGE_4_LABEL);
     await this._yieldPreloadFrame();
     if (this.audio && typeof this.audio.prewarmBuffers === "function") {
-      await this.audio.prewarmBuffers();
+      const isAutomatedHarnessBoot = Boolean(
+        typeof window !== "undefined" && (window.__virtualClock || window.__externalClock)
+      );
+      if (isAutomatedHarnessBoot) {
+        await this.audio.prewarmBuffers();
+      } else {
+        // Non-blocking progressive audio decode on interactive mobile/desktop so 96% -> 100% NEVER freezes!
+        await Promise.race([
+          Promise.resolve(this.audio.prewarmBuffers()).catch(() => {}),
+          new Promise((r) => nativeWait(r, 65)),
+        ]);
+      }
     }
 
     this._assetsFinalized = true;
@@ -1940,12 +2017,43 @@ export class DemoCore {
         (window.devicePixelRatio || 1) <= 1.05 &&
         (window.innerWidth || 1920) <= 1920
     );
+    const initFlags = parseInitialUrlFlags();
+    const isExtBoot = typeof window !== "undefined" && Boolean(window.__externalClock);
+    const initTier = isExtBoot ? "high" : initFlags.qualityTier || "low";
+    this.qualityTier = initTier;
+    this.maxDprForQuality =
+      initTier === "low"
+        ? this.isWeakMobileDevice
+          ? 0.9
+          : 1.0
+        : initTier === "medium"
+          ? 1.35
+          : 2.0;
+    this._governedRetinaDprCap = this.maxDprForQuality;
+    this._particleQualityScale =
+      initTier === "low" ? 0.35 : initTier === "medium" ? 0.7 : 1.0;
+
     const initStaticShadowMapSize = isFast1080pCpuShadow
       ? 1536
       : this.isSoftwareRenderer || isCaptureSwCpu
-        ? 2048
-        : 4096;
-    const initDynamicShadowMapSize = this.isSoftwareRenderer || isCaptureSwCpu ? 1024 : 2048;
+        ? initTier === "low"
+          ? 1024
+          : 2048
+        : initTier === "high"
+          ? 4096
+          : initTier === "medium"
+            ? 2048
+            : 1024;
+    const initDynamicShadowMapSize =
+      this.isSoftwareRenderer || isCaptureSwCpu
+        ? initTier === "low"
+          ? 512
+          : 1024
+        : initTier === "high"
+          ? 2048
+          : initTier === "medium"
+            ? 1024
+            : 512;
     this.sunLight.shadow.mapSize.set(initStaticShadowMapSize, initStaticShadowMapSize);
     this.sunLight.shadow.camera.near = 2.0;
     this.sunLight.shadow.camera.far = 295.0;
@@ -2012,7 +2120,7 @@ export class DemoCore {
     this.scene.add(this.rimLight);
     this.scene.add(this.rimLight.target);
 
-    // V7 Two-Tier Static (`4096x4096`, `+-64.0m`, `>8.0m` cached) + Dynamic (`2048x2048`, `+-10.5m` `1.0cm/texel`) Shadows & Atmosphere
+    // V7 Two-Tier Static + Dynamic Shadows & Atmosphere
     this.v5Lighting = configureAAASunShadowsAndAtmosphere(
       THREE,
       this.renderer,
@@ -2030,21 +2138,25 @@ export class DemoCore {
         halfExtentM: 64.0,
         dynamicShadowMapSize: initDynamicShadowMapSize,
         dynamicHalfExtentM: 10.5,
-        gymShadowMapSize: this.isSoftwareRenderer || isCaptureSwCpu ? 512 : 1024,
+        gymShadowMapSize:
+          initTier === "high" && !this.isSoftwareRenderer && !isCaptureSwCpu ? 1024 : 512,
+        moveThresholdM: initTier === "low" ? 14.0 : initTier === "medium" ? 8.0 : 4.5,
+        dynamicUpdateInterval: initTier === "low" ? 3 : 1,
+        qualityTier: initTier,
         enableHorizonAerialPerspective: false,
         bakeEnvironment: false,
       }
     );
 
-    // V7 Single-Pass Fused Cinema Post-FX on GPU; SwiftShader uses direct single-pass ACES + `opticsOverlay` (`0` offscreen depth FBO copy!)
+    // V7 Single-Pass Fused Cinema Post-FX on HIGH GPU tier; LOW/MEDIUM and SwiftShader use direct single-pass ACES + `opticsOverlay` (`0` offscreen depth FBO copy!)
     if (typeof createCinemaPostFXPipeline === "function") {
       try {
         this.postFX = createCinemaPostFXPipeline(THREE, this.renderer, {
           isSoftwareRenderer: Boolean(this.isSoftwareRenderer || isCaptureSwCpu),
-          enabled: !this.isSoftwareRenderer && !isCaptureSwCpu,
-          samples: 4,
+          enabled: initTier === "high" && !this.isSoftwareRenderer && !isCaptureSwCpu,
+          samples: initTier === "high" ? 4 : 0,
           softwareSamples: 0,
-          aoStrength: isCaptureSwCpu ? 0 : 0.28,
+          aoStrength: isCaptureSwCpu || initTier === "low" ? 0 : 0.28,
           dofStrength: 0,
           vignetteMesh: this.vignetteQuad,
         });
@@ -3675,10 +3787,15 @@ diffuseColor.a *= vPuffAlpha;`
 
     if (totalIntensity > 0.02) {
       const isWhipSkidOnly = shorelineSkid > 0.02 && standSmoke <= 0.02 && peelBurst <= 0.02;
+      const pScale =
+        typeof window !== "undefined" && (window.__externalClock || window.__virtualClock)
+          ? 1.0
+          : this._particleQualityScale || 0.35;
       // 46..84 puffs/sec on gym trainer burnout; 36 puffs/sec wispy rear-tire scuff during Shoreline whip-skid (`67.85s -> 68.85s`)
-      const rate = isWhipSkidOnly
-        ? 36.0 * shorelineSkid
-        : 44.0 + standSmoke * 30.0 + peelBurst * 42.0;
+      const rate =
+        (isWhipSkidOnly
+          ? 36.0 * shorelineSkid
+          : 44.0 + standSmoke * 30.0 + peelBurst * 42.0) * pScale;
       this._smokeEmitAccum += dt * rate;
       const backX = -snap.forwardX;
       const backZ = -snap.forwardZ;
@@ -4093,13 +4210,19 @@ diffuseColor.a *= vPuffAlpha;`
     const slipstreamActive =
       !snap.onTrainerStand && (speedAbs > 3.89 || isCarving || isJumping || isBoosting);
 
+    const pScale =
+      typeof window !== "undefined" && (window.__externalClock || window.__virtualClock)
+        ? 1.0
+        : this._particleQualityScale || 0.35;
+
     if (slipstreamActive) {
       const speedNorm = THREE.MathUtils.clamp((speedAbs - 3.5) / 5.2, 0.18, 1.35);
       const emitRate =
-        28.0 * speedNorm +
-        (isCarving ? 14.0 : 0.0) +
-        (isJumping ? 16.0 : 0.0) +
-        (isBoosting ? 26.0 : 0.0);
+        (28.0 * speedNorm +
+          (isCarving ? 14.0 : 0.0) +
+          (isJumping ? 16.0 : 0.0) +
+          (isBoosting ? 26.0 : 0.0)) *
+        pScale;
       this._ribbonEmitAccum += dt * emitRate;
 
       const fx = snap.forwardX;
@@ -4183,7 +4306,7 @@ diffuseColor.a *= vPuffAlpha;`
 
       // Ground-skimming sunlit micro-dust wisps (`2–5cm` above pavers/asphalt) when grounded at speed!
       if (!snap.isAirborne && speedAbs > 3.89) {
-        this._wispEmitAccum += dt * (14.0 * speedNorm);
+        this._wispEmitAccum += dt * (14.0 * speedNorm * pScale);
         const gY = Number.isFinite(snap.groundY) ? snap.groundY : 0.0;
         while (this._wispEmitAccum >= 1.0) {
           this._wispEmitAccum -= 1.0;
@@ -4265,7 +4388,7 @@ diffuseColor.a *= vPuffAlpha;`
     // Wave 4 Shoreline Whip-Skid (`67.85s -> 68.85s`): subtle golden-hour granite/basalt grit micro-sparks & stone dust wisps from locked rear tire!
     const shorelineSkid = Math.max(0.0, Number(snap.shorelineSkidIntensity) || 0.0);
     if (shorelineSkid > 0.04) {
-      this._skidGritAccum = (this._skidGritAccum || 0.0) + dt * (28.0 * shorelineSkid);
+      this._skidGritAccum = (this._skidGritAccum || 0.0) + dt * (28.0 * shorelineSkid * pScale);
       const rearDist = this.gbike?.rearAxleZ ?? 0.5425;
       const gY = Number.isFinite(snap.groundY) ? snap.groundY : 0.0;
       const rearPatchX = snap.x - snap.forwardX * rearDist;
@@ -4486,24 +4609,33 @@ diffuseColor.a *= vPuffAlpha;`
   }
 
   /**
-   * Adaptive GPU Quality Tier controller (`high` | `medium` | `low`).
+   * Adaptive GPU Quality Tier controller (`low` | `medium` | `high`).
+   * Launches in `'low'` by default for fast mobile performance while preserving 100% of realistic 3D models & 2K PBR textures.
    * Strictly locks `'high'` (`4096×4096` shadows on hardware GPU) whenever `window.__externalClock === true`!
    */
-  setQualityTier(requestedTier = "high") {
+  setQualityTier(requestedTier = "low") {
     const isExternal = typeof window !== "undefined" && window.__externalClock === true;
     const tier = isExternal
       ? "high"
-      : ["high", "medium", "low"].includes(requestedTier)
-        ? requestedTier
-        : "high";
+      : ["high", "medium", "low"].includes(String(requestedTier).toLowerCase())
+        ? String(requestedTier).toLowerCase()
+        : "low";
 
     this.qualityTier = tier;
-    this.maxDprForQuality = tier === "low" ? 1.0 : tier === "medium" ? 1.5 : 2.0;
-    if (tier === "high") {
-      this._governedRetinaDprCap = 2.0;
-      this._dprFrameDeltaCount = 0;
-      this._lastPerfNowMs = 0;
-    }
+    state.qualityTier = tier;
+    this.maxDprForQuality =
+      tier === "low"
+        ? this.isWeakMobileDevice
+          ? 0.9
+          : 1.0
+        : tier === "medium"
+          ? 1.35
+          : 2.0;
+    this._governedRetinaDprCap = this.maxDprForQuality;
+    this._dprFrameDeltaCount = 0;
+    this._lastPerfNowMs = 0;
+    this._particleQualityScale =
+      tier === "low" ? 0.35 : tier === "medium" ? 0.7 : 1.0;
 
     const isFast1080pCpuTier = Boolean(
       (this.isSoftwareRenderer || this.isCaptureSwCpu) &&
@@ -4511,31 +4643,96 @@ diffuseColor.a *= vPuffAlpha;`
         this.renderer.getPixelRatio() <= 1.05 &&
         this.renderer.domElement.width <= 1920
     );
-    const targetShadowSize = isFast1080pCpuTier
-      ? 1536
-      : this.isSoftwareRenderer || this.isCaptureSwCpu
-        ? tier === "low"
-          ? 1024
-          : 2048
-        : tier === "high"
-          ? 4096
-          : tier === "medium"
-            ? 2048
-            : 1024;
-    if (
-      this.sunLight &&
-      (this.sunLight.shadow.mapSize.width !== targetShadowSize ||
-        this.sunLight.shadow.mapSize.height !== targetShadowSize)
-    ) {
-      this.sunLight.shadow.mapSize.set(targetShadowSize, targetShadowSize);
-      if (this.sunLight.shadow.map) {
-        this.sunLight.shadow.map.dispose();
-        this.sunLight.shadow.map = null;
+
+    if (this.renderer && this.renderer.shadowMap) {
+      const nextShadowType =
+        this.isSoftwareRenderer || this.isCaptureSwCpu || (tier === "low" && this.isWeakMobileDevice)
+          ? THREE.BasicShadowMap
+          : tier === "high"
+            ? THREE.PCFSoftShadowMap
+            : THREE.PCFShadowMap;
+      if (this.renderer.shadowMap.type !== nextShadowType) {
+        this.renderer.shadowMap.type = nextShadowType;
+        this.renderer.shadowMap.needsUpdate = true;
       }
-      this.sunLight.shadow.needsUpdate = true;
+    }
+
+    if (this.v5Lighting && typeof this.v5Lighting.setShadowQualityTier === "function") {
+      this.v5Lighting.setShadowQualityTier(tier, {
+        isSoftwareRenderer: Boolean(this.isSoftwareRenderer || this.isCaptureSwCpu),
+        isFast1080pCpuTier,
+      });
+    } else {
+      const targetShadowSize = isFast1080pCpuTier
+        ? 1536
+        : this.isSoftwareRenderer || this.isCaptureSwCpu
+          ? tier === "low"
+            ? 1024
+            : 2048
+          : tier === "high"
+            ? 4096
+            : tier === "medium"
+              ? 2048
+              : 1024;
+      if (
+        this.sunLight &&
+        (this.sunLight.shadow.mapSize.width !== targetShadowSize ||
+          this.sunLight.shadow.mapSize.height !== targetShadowSize)
+      ) {
+        this.sunLight.shadow.mapSize.set(targetShadowSize, targetShadowSize);
+        if (this.sunLight.shadow.map) {
+          this.sunLight.shadow.map.dispose();
+          this.sunLight.shadow.map = null;
+        }
+        this.sunLight.shadow.needsUpdate = true;
+      }
+    }
+
+    // Post-processing: full HDR + Bloom + DoF + AO in HIGH; direct single-pass ACES + opticsOverlay in LOW & MEDIUM
+    if (this.postFX && typeof this.postFX.setEnabled === "function") {
+      const enablePostFX =
+        tier === "high" && !this.isSoftwareRenderer && !this.isCaptureSwCpu;
+      this.postFX.setEnabled(enablePostFX);
+    }
+
+    // Update texture anisotropy & World-Cohesion Parallax Occlusion Mapping (POM) scale without shader recompilation
+    const targetAniso = tier === "low" ? 1 : tier === "medium" ? 4 : 8;
+    const targetPomScale =
+      this.isSoftwareRenderer || this.isCaptureSwCpu
+        ? 0.0
+        : tier === "low"
+          ? 0.0
+          : tier === "medium"
+            ? 0.5
+            : 1.0;
+    if (this.scene) {
+      const seenTex = new Set();
+      this.scene.traverse((obj) => {
+        if (!obj.material) return;
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        for (let mi = 0; mi < mats.length; mi++) {
+          const m = mats[mi];
+          if (!m) continue;
+          if (m.userData?.__v7WorldCohesionUniforms?.uV7PomScale) {
+            m.userData.__v7WorldCohesionUniforms.uV7PomScale.value = targetPomScale;
+          }
+          for (const tk of ["map", "normalMap", "roughnessMap", "metalnessMap"]) {
+            const tx = m[tk];
+            if (tx && tx.isTexture && !tx.isCubeTexture && !seenTex.has(tx)) {
+              seenTex.add(tx);
+              if (tx.anisotropy !== targetAniso) {
+                tx.anisotropy = targetAniso;
+              }
+            }
+          }
+        }
+      });
     }
 
     this.resize();
+    if (this.renderer && this.renderer.shadowMap) {
+      this.renderer.shadowMap.needsUpdate = true;
+    }
   }
 
   _bindEventsAndUrlFlags() {
@@ -5554,8 +5751,8 @@ diffuseColor.a *= vPuffAlpha;`
       this.setQualityTier("high");
     }
 
-    // Priority 0.3B: Smart Non-Destructive Retina DPR Governor (`2.0 -> 1.5` ONLY on ultra-high-DPI
-    // interactive GPU sessions if rolling 60-frame wall-clock delta exceeds `18.5ms`; never `< 1.5`).
+    // Priority 0.3B: Smart Non-Destructive DPR & Mobile Frame-Time Governor:
+    // Automatically reduces render resolution cap on high-DPI desktops or weak Android devices if rolling 60-frame delta exceeds budget.
     if (
       !this.isSoftwareRenderer &&
       this._assetsFinalized &&
@@ -5573,15 +5770,26 @@ diffuseColor.a *= vPuffAlpha;`
           this._dprFrameDeltaIdx = (this._dprFrameDeltaIdx + 1) % 60;
           if (this._dprFrameDeltaCount < 60) {
             this._dprFrameDeltaCount += 1;
-          } else if (
-            (window.devicePixelRatio || 1) >= 2.0 &&
-            this._governedRetinaDprCap > 1.5 &&
-            this.qualityTier === "high"
-          ) {
+          } else {
             let sumMs = 0.0;
             for (let ri = 0; ri < 60; ri++) sumMs += this._dprFrameDeltaRing[ri];
-            if (sumMs / 60.0 > 18.5) {
+            const avgMs = sumMs / 60.0;
+            if (
+              (window.devicePixelRatio || 1) >= 2.0 &&
+              this._governedRetinaDprCap > 1.5 &&
+              this.qualityTier === "high" &&
+              avgMs > 18.5
+            ) {
               this._governedRetinaDprCap = 1.5;
+              this.resize();
+            } else if (
+              this.isMobileDevice &&
+              this._governedRetinaDprCap > 0.8 &&
+              avgMs > 23.0
+            ) {
+              this._governedRetinaDprCap = Math.max(0.8, this._governedRetinaDprCap - 0.15);
+              this._particleQualityScale = Math.min(this._particleQualityScale, 0.25);
+              this._dprFrameDeltaCount = 0;
               this.resize();
             }
           }

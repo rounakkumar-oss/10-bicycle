@@ -703,12 +703,14 @@ function boot() {
     if (core && lastAdvancedFrameIndex < 0 && !rafId && (!isHarnessClock || flags.startOffsetSec !== null)) {
       if (flags.startOffsetSec !== null) {
         seekDeterministicallyToTime(flags.startOffsetSec);
-      } else if (typeof core.renderAtTime === "function") {
-        core.renderAtTime(0.0);
-      } else {
-        core.advanceFrame(0, 0, 0);
+      } else if (!core._frame0Rendered) {
+        if (typeof core.renderAtTime === "function") {
+          core.renderAtTime(0.0);
+        } else {
+          core.advanceFrame(0, 0, 0);
+        }
       }
-    } else if (core && lastAdvancedFrameIndex < 0 && state.elapsedTime === 0 && !isHarnessClock) {
+    } else if (core && lastAdvancedFrameIndex < 0 && state.elapsedTime === 0 && !isHarnessClock && !core._frame0Rendered) {
       if (typeof core.renderAtTime === "function") {
         core.renderAtTime(0.0);
       } else {
@@ -755,12 +757,13 @@ function boot() {
       resolveDemoReady(true);
       startLiveRafClockFromZero();
     } else {
-      // Interactive browser session (or `?forceLoader=1`): smoothly fade `#campus-preloader` (`320ms` ease-out),
-      // set `display: none` on `transitionend`, and ONLY THEN start advancing the `t = 0.000s` clock!
+      // Interactive browser session (or `?forceLoader=1`): smoothly fade `#campus-preloader`,
+      // set `display: none` on `transitionend`, and immediately start advancing the `t = 0.000s` clock!
       if (typeof window !== "undefined") {
         window.__DEMO_READY__ = true;
       }
       resolveDemoReady(true);
+      startLiveRafClockFromZero();
 
       let curtainSettled = false;
       const finishCurtainHandoff = () => {
@@ -769,7 +772,6 @@ function boot() {
         preloaderEl.removeEventListener("transitionend", onPreloaderTransitionEnd);
         preloaderEl.style.display = "none";
         preloaderEl.setAttribute("aria-hidden", "true");
-        startLiveRafClockFromZero();
       };
       const onPreloaderTransitionEnd = (ev) => {
         if (!ev || ev.target === preloaderEl) {
@@ -780,7 +782,7 @@ function boot() {
       // Force style flush so `opacity: 1 -> 0` transition triggers deterministically
       void preloaderEl.offsetWidth;
       preloaderEl.classList.add("is-fading-out");
-      nativeWait(finishCurtainHandoff, 350);
+      nativeWait(finishCurtainHandoff, 180);
     }
   });
 }

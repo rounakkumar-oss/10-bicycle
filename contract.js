@@ -492,7 +492,7 @@ export const state = {
   isAutoplay: true,
   isAutoTourActive: true,
   xrayEnabled: false,
-  qualityTier: "high",
+  qualityTier: "low",
   idleSec: 0.0,
   elapsedTime: 0.0,
   clipLocalTime: 0.0,
@@ -808,7 +808,7 @@ export function parseInitialUrlFlags(search = typeof window !== "undefined" ? wi
   const validCam = CAMERA_MODES.find((c) => c.id === camParam)?.id || defaultCam;
 
   const rawQuality = (params.get("quality") || "").trim().toLowerCase();
-  const qualityTier = ["high", "medium", "low"].includes(rawQuality) ? rawQuality : "high";
+  const qualityTier = ["high", "medium", "low"].includes(rawQuality) ? rawQuality : "low";
   const audioEnabled = params.get("audio") === "1" || params.get("audioOnly") === "1";
 
   const rawBike = (params.get("bike") || "").trim().toLowerCase();
@@ -1107,8 +1107,8 @@ export function dispatchAction(actionType, payload = {}) {
     }
 
     case DEMO_ACTIONS.SET_QUALITY: {
-      const rawTier = String(payload.qualityTier || "high").toLowerCase();
-      const validTier = ["high", "medium", "low"].includes(rawTier) ? rawTier : "high";
+      const rawTier = String(payload.qualityTier || "low").toLowerCase();
+      const validTier = ["high", "medium", "low"].includes(rawTier) ? rawTier : "low";
       const lockedHigh =
         typeof window !== "undefined" && Boolean(window.__externalClock) && !payload.forceExternal;
       state.qualityTier = lockedHigh ? "high" : validTier;
