@@ -33,6 +33,7 @@ import {
   dispatchAction,
   deriveTourSummary,
   normalizeStateKey,
+  normalizeQualityTier,
 } from "./contract.js";
 import {
   KIN_CONSTANTS,
@@ -380,18 +381,7 @@ export function initUI() {
   const speedMphVal = document.getElementById("speed-mph-val");
   const btnHop = document.getElementById("btn-hop");
   const btnRingBell = document.getElementById("btn-ring-bell");
-  let btnNooglerHat = document.getElementById("btn-noogler-hat");
-  if (!btnNooglerHat && btnRingBell && btnRingBell.parentElement) {
-    btnNooglerHat = document.createElement("button");
-    btnNooglerHat.type = "button";
-    btnNooglerHat.className = "action-pill";
-    btnNooglerHat.id = "btn-noogler-hat";
-    btnNooglerHat.dataset.demoId = "toggle-noogler-hat";
-    btnNooglerHat.setAttribute("aria-pressed", "false");
-    btnNooglerHat.title = "Toggle Noogler Propeller Hat [H]";
-    btnNooglerHat.innerHTML = '<kbd class="keycap">H</kbd><span>Hat</span>';
-    btnRingBell.insertAdjacentElement("afterend", btnNooglerHat);
-  }
+  const btnNooglerHat = document.getElementById("btn-noogler-hat");
 
   let isMinimapExpanded = parseInitialExpandedMapFlag();
   let isCamPopoverOpen = false;
@@ -644,9 +634,7 @@ export function initUI() {
   }
 
   function syncQualityPills(tier = state.qualityTier) {
-    const activeTier = ["low", "medium", "high"].includes(String(tier).toLowerCase())
-      ? String(tier).toLowerCase()
-      : "low";
+    const activeTier = normalizeQualityTier(tier);
     for (let i = 0; i < qualityPills.length; i++) {
       const btn = qualityPills[i];
       const isMatch = btn.dataset.quality === activeTier;
@@ -2347,8 +2335,8 @@ export function initUI() {
       return false;
     }
 
-    if (/^quality-(low|medium|high)$/.test(id)) {
-      const targetTier = id.replace(/^quality-/, "");
+    if (/^quality-(very_low|very-low|low|medium|high|ultra)$/.test(id)) {
+      const targetTier = normalizeQualityTier(id.replace(/^quality-/, ""));
       if (state.qualityTier !== targetTier || options.force) {
         dispatchAction(DEMO_ACTIONS.SET_QUALITY, {
           qualityTier: targetTier,

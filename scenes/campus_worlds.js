@@ -3927,11 +3927,13 @@ export class CampusWorlds {
     if (this.sunsetDustMotes) {
       const maxC = this.sunsetDustMaxCount;
       const drawCount =
-        tier === "low"
-          ? Math.floor(maxC * 0.28)
-          : tier === "medium"
-            ? Math.floor(maxC * 0.60)
-            : maxC;
+        tier === "very_low"
+          ? Math.floor(maxC * 0.12)
+          : tier === "low"
+            ? Math.floor(maxC * 0.28)
+            : tier === "medium"
+              ? Math.floor(maxC * 0.60)
+              : maxC;
       this.sunsetDustMotes.geometry.setDrawRange(0, drawCount);
     }
     if (this.sunsetDustMat) {

@@ -372,9 +372,11 @@
             <span class="pill-group-divider" aria-hidden="true"></span>
 
             <div class="segmented-well quality-switcher-well tabular-nums" id="quality-switcher-well" role="tablist" aria-label="Graphics Quality">
-              <button type="button" class="seg-pill quality-pill active tabular-nums" role="tab" aria-selected="true" data-demo-id="quality-low" data-quality="low" title="Low Graphics (Fastest FPS · Realistic 3D Models Preserved)">LOW</button>
+              <button type="button" class="seg-pill quality-pill tabular-nums" role="tab" aria-selected="false" data-demo-id="quality-very_low" data-quality="very_low" title="Very Low Graphics (4GB Android Max FPS · Shadows Off · All 3D Models Intact)">V-LOW</button>
+              <button type="button" class="seg-pill quality-pill active tabular-nums" role="tab" aria-selected="true" data-demo-id="quality-low" data-quality="low" title="Low Graphics (Default · Fast Mobile FPS · Realistic 3D Models)">LOW</button>
               <button type="button" class="seg-pill quality-pill tabular-nums" role="tab" aria-selected="false" data-demo-id="quality-medium" data-quality="medium" title="Medium Graphics (Balanced Shadows &amp; Resolution)">MED</button>
               <button type="button" class="seg-pill quality-pill tabular-nums" role="tab" aria-selected="false" data-demo-id="quality-high" data-quality="high" title="High Graphics (4K Shadows · HDR Post-FX · Bloom)">HIGH</button>
+              <button type="button" class="seg-pill quality-pill tabular-nums" role="tab" aria-selected="false" data-demo-id="quality-ultra" data-quality="ultra" title="Ultra Graphics (Max Resolution · Full Foliage &amp; Reflections)">ULTRA</button>
             </div>
 
             <span class="pill-group-divider" aria-hidden="true"></span>
@@ -520,11 +522,6 @@
             <span>Bell</span>
           </button>
 
-          <button type="button" class="action-pill" id="btn-noogler-hat" data-demo-id="toggle-noogler-hat" aria-pressed="false" title="Toggle Noogler Propeller Hat [H]">
-            <kbd class="keycap">H</kbd>
-            <span>Hat</span>
-          </button>
-
           <span class="actions-divider" aria-hidden="true"></span>
 
           <div class="keycap-legend" aria-label="Keyboard Controls">
@@ -547,9 +544,8 @@
         </div>
 
         <div class="touch-action-cluster glass-dock" role="group" aria-label="Mobile Bike Actions">
-          <button type="button" class="touch-act-btn touch-act-primary" id="touch-btn-hop">HOP</button>
-          <button type="button" class="touch-act-btn" id="touch-btn-bell">BELL</button>
-          <button type="button" class="touch-act-btn" id="touch-btn-roam">ROAM</button>
+          <button type="button" class="touch-act-btn" id="touch-btn-bell" aria-label="Ring Bell">BELL</button>
+          <button type="button" class="touch-act-btn touch-act-primary" id="touch-btn-hop" aria-label="Bunny Hop">HOP</button>
         </div>
       </div>
 
@@ -575,16 +571,19 @@
             <label class="config-field">
               <span class="config-label">GRAPHICS QUALITY (ALL 3D MODELS PRESERVED)</span>
               <select id="graphics-quality-select" class="config-select">
-                <option value="low" selected>LOW (Default · Fastest Mobile FPS · Realistic Models)</option>
+                <option value="very_low">VERY LOW (Max Battery · 4GB Android · Shadows Off)</option>
+                <option value="low" selected>LOW (Default · Fast Mobile FPS · Realistic Models)</option>
                 <option value="medium">MEDIUM (Balanced Shadows &amp; Resolution)</option>
                 <option value="high">HIGH (4K Shadows · HDR Bloom · DoF Post-FX)</option>
+                <option value="ultra">ULTRA (Max 2.5x Res · Extended View &amp; Grass)</option>
               </select>
             </label>
             <label class="config-field">
               <span class="config-label">RENDER TARGET</span>
               <select id="settings-fps-select" class="config-select">
-                <option value="60fps">60 FPS Locked (Smooth Mobile)</option>
-                <option value="battery">Mobile Battery Saver (45 FPS)</option>
+                <option value="30fps">30 FPS (Ultra Battery Saver)</option>
+                <option value="battery">45 FPS (Mobile Battery Saver)</option>
+                <option value="60fps" selected>60 FPS Locked (Smooth Mobile)</option>
                 <option value="120fps">120Hz High-Refresh</option>
               </select>
             </label>
@@ -592,10 +591,13 @@
 
           <div class="settings-actions-row">
             <button type="button" class="settings-toggle-btn" id="btn-toggle-touch-controls" aria-pressed="false">
-              <span class="touch-toggle-label">Enable Mobile Touch Controls</span>
+              <span class="touch-toggle-label">Touch Controls: OFF</span>
             </button>
             <button type="button" class="settings-toggle-btn" id="btn-settings-audio" aria-pressed="false">
               <span class="audio-toggle-label">Sound &amp; Music: OFF</span>
+            </button>
+            <button type="button" class="settings-toggle-btn" id="btn-settings-xray" aria-pressed="false">
+              <span class="xray-toggle-label">Drivetrain X-Ray: OFF</span>
             </button>
           </div>
 

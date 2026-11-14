@@ -12365,29 +12365,43 @@ export class OpenCampusWorld {
     };
 
     const activeTier = globalState.qualityTier || "low";
-    const isLowQuality = activeTier === "low";
+    const isVeryLowQuality = activeTier === "very_low";
+    const isLowQuality = activeTier === "low" || isVeryLowQuality;
     const isMedQuality = activeTier === "medium";
+    const isUltraQuality = activeTier === "ultra";
     const inViewCone = (tx, tz, maxDist, closeRad = 28.0, minDot = 0.20) => {
       const dHero = Math.hypot(tx - snap.x, tz - snap.z);
       const dCam = Math.hypot(tx - camX, tz - camZ);
       if (isTopDownCam) {
         return dHero <= topDownRadius || dCam <= topDownRadius;
       }
-      const effClose = isLowQuality
-        ? Math.min(closeRad, 14.0)
-        : isMedQuality
-          ? Math.min(closeRad, 22.0)
-          : closeRad;
-      const effMax = isLowQuality
-        ? Math.min(maxDist, 110.0)
-        : isMedQuality
-          ? Math.min(maxDist, 175.0)
-          : maxDist;
-      const effMinDot = isLowQuality
-        ? Math.max(minDot, 0.35)
-        : isMedQuality
-          ? Math.max(minDot, 0.26)
-          : minDot;
+      const effClose = isVeryLowQuality
+        ? Math.min(closeRad, 10.0)
+        : isLowQuality
+          ? Math.min(closeRad, 14.0)
+          : isMedQuality
+            ? Math.min(closeRad, 22.0)
+            : isUltraQuality
+              ? closeRad * 1.15
+              : closeRad;
+      const effMax = isVeryLowQuality
+        ? Math.min(maxDist, 78.0)
+        : isLowQuality
+          ? Math.min(maxDist, 110.0)
+          : isMedQuality
+            ? Math.min(maxDist, 175.0)
+            : isUltraQuality
+              ? maxDist * 1.25
+              : maxDist;
+      const effMinDot = isVeryLowQuality
+        ? Math.max(minDot, 0.42)
+        : isLowQuality
+          ? Math.max(minDot, 0.35)
+          : isMedQuality
+            ? Math.max(minDot, 0.26)
+            : isUltraQuality
+              ? Math.min(minDot, 0.14)
+              : minDot;
       if (dCam <= 8.5 || dHero <= effClose * 0.5) return true;
       if (dCam > effMax && dHero > effMax) return false;
       const dot = ((tx - camX) * camFwdX + (tz - camZ) * camFwdZ) / (dCam + 1e-4);
@@ -12436,7 +12450,7 @@ export class OpenCampusWorld {
 
     // PRIORITY 0.3A: Static spatial-quadrant horizon trees — ONLY toggle group visibility (`0` per-frame matrix loops/uploads!)
     if (this.horizonTreesStaticGroup) {
-      this.horizonTreesStaticGroup.visible = !enclosedInGym;
+      this.horizonTreesStaticGroup.visible = !enclosedInGym && !isVeryLowQuality;
     }
 
     // PRIORITY 0.3A: Dirty-Check Gate on `treeDynamicBatches` and `propDynamicBatches`!
@@ -12447,8 +12461,8 @@ export class OpenCampusWorld {
     //   4) an active foreground sightline fade factor transitions by `> 0.01`, OR
     //   5) `forceRebuild` (`this._cullForceRebuild` / `globalState.forceCullRebuild`) is true!
     const fastSwTrees = Boolean(this._isFast1080pSw);
-    const moveThreshM = isLowQuality ? 0.85 : isMedQuality ? 0.52 : 0.35;
-    const cosRotLimit = isLowQuality ? 0.99904822 : 0.99978068; // 2.5 deg in low, 1.2 deg in med/high
+    const moveThreshM = isVeryLowQuality ? 1.15 : isLowQuality ? 0.85 : isMedQuality ? 0.52 : 0.35;
+    const cosRotLimit = isLowQuality ? 0.99904822 : 0.99978068; // 2.5 deg in low, 1.2 deg in med/high/ultra
     const camMoved =
       !Number.isFinite(this._lastCullCamX) ||
       Math.hypot(
@@ -12540,10 +12554,20 @@ export class OpenCampusWorld {
       let anyActiveFade = false;
 
       if (this.treeDynamicBatches) {
-        const heroShadowRad = fastSwTrees || isLowQuality ? 40.0 : isMedQuality ? 60.0 : 80.0;
+        const heroShadowRad = fastSwTrees || isVeryLowQuality ? 0.0 : isLowQuality ? 40.0 : isMedQuality ? 60.0 : 80.0;
         const swSweptMaxRad = 68.0;
-        const treeConeMax = fastSwTrees ? 132.0 : isLowQuality ? 128.0 : isMedQuality ? 195.0 : 315.0;
-        const treeConeClose = fastSwTrees || isLowQuality ? 28.0 : 38.0;
+        const treeConeMax = fastSwTrees
+          ? 132.0
+          : isVeryLowQuality
+            ? 90.0
+            : isLowQuality
+              ? 128.0
+              : isMedQuality
+                ? 195.0
+                : isUltraQuality
+                  ? 380.0
+                  : 315.0;
+        const treeConeClose = fastSwTrees || isVeryLowQuality ? 20.0 : isLowQuality ? 28.0 : 38.0;
         for (const batch of this.treeDynamicBatches) {
           let nearCount = 0;
           let farCount = 0;
@@ -12559,6 +12583,7 @@ export class OpenCampusWorld {
             // V8-01: Keep 100% of swept sun-shadow segment (`P + s * (-sunDir)`, `s = 0, 16, 32, 48m`) tree shadow-caster logic intact!
             const castShadowCandidate =
               !enclosedInGym &&
+              !isVeryLowQuality &&
               (dHeroTree <= heroShadowRad ||
                 (fastSwTrees
                   ? dHeroTree <= swSweptMaxRad &&
@@ -12619,13 +12644,15 @@ export class OpenCampusWorld {
       }
 
       if (this.propDynamicBatches) {
+        const propConeMax = isVeryLowQuality ? 96.0 : isLowQuality ? 140.0 : isMedQuality ? 195.0 : 240.0;
+        const propConeClose = isVeryLowQuality ? 18.0 : isLowQuality ? 24.0 : 32.0;
         for (const batch of this.propDynamicBatches) {
           let activeCount = 0;
           const pls = batch.placements;
           if (!enclosedInGym) {
             for (let i = 0; i < pls.length; i++) {
               const pl = pls[i];
-              if (!inViewCone(pl.x, pl.z, 195.0, 32.0, 0.28)) {
+              if (!inViewCone(pl.x, pl.z, propConeMax, propConeClose, 0.28)) {
                 pl._lastSightCf = 1.0;
                 continue;
               }
@@ -13092,18 +13119,23 @@ export class OpenCampusWorld {
     const shattered = Boolean(globalState.glassShattered);
     if (shattered && !this._wasGlassShattered) {
       this._localShatterTriggerSec = simTime;
+      this._glassSettledDone = false;
+      this._mullionSettledDone = false;
     } else if (!shattered) {
       this._localShatterTriggerSec = -10.0;
+      this._glassSettledDone = false;
+      this._mullionSettledDone = false;
     }
     this._wasGlassShattered = shattered;
 
     if (this.intactGymGlassMesh) this.intactGymGlassMesh.visible = !shattered;
     if (this.jaggedGlassFrameGroup) this.jaggedGlassFrameGroup.visible = shattered;
 
+    const glassInRange = shattered && Math.hypot(snap.x, snap.z - 131.2) < 115.0;
     if (this.glassShardInstanced) {
-      this.glassShardInstanced.visible = shattered;
-      this.glassShardInstanced.castShadow = shattered && nearGymAndPinwheels;
-      if (shattered) {
+      this.glassShardInstanced.visible = glassInRange;
+      this.glassShardInstanced.castShadow = allowWorldShadows && glassInRange && nearGymAndPinwheels;
+      if (shattered && !this._glassSettledDone) {
         const tauRaw =
           globalState.gameMode === "story_autopilot" && globalState.sequenceTime >= GYM_BREAKOUT_CONFIG.glassSmashSec
             ? globalState.sequenceTime - GYM_BREAKOUT_CONFIG.glassSmashSec
@@ -13149,13 +13181,14 @@ export class OpenCampusWorld {
           this.glassShardInstanced.setMatrixAt(i, _mat4);
         }
         this.glassShardInstanced.instanceMatrix.needsUpdate = true;
+        if (tau >= 6.0) this._glassSettledDone = true;
       }
     }
 
     if (this.mullionShardInstanced) {
-      this.mullionShardInstanced.visible = shattered;
+      this.mullionShardInstanced.visible = glassInRange;
       this.mullionShardInstanced.castShadow = false;
-      if (shattered) {
+      if (shattered && !this._mullionSettledDone) {
         const tauRaw =
           globalState.gameMode === "story_autopilot" && globalState.sequenceTime >= GYM_BREAKOUT_CONFIG.glassSmashSec
             ? globalState.sequenceTime - GYM_BREAKOUT_CONFIG.glassSmashSec
@@ -13197,11 +13230,12 @@ export class OpenCampusWorld {
           this.mullionShardInstanced.setMatrixAt(i, _mat4);
         }
         this.mullionShardInstanced.instanceMatrix.needsUpdate = true;
+        if (tau >= 6.0) this._mullionSettledDone = true;
       }
     }
 
     // 6. 16 Kinetic Wind Pinwheels + `Gradient_Canopy_Building_V6` 3 front rotors (Omni 1.5 `-0.65 rad/s` clockwise wind cadence!)
-    if (this.v6PinwheelRotors && this.v6PinwheelRotors.length > 0) {
+    if (this.v6PinwheelRotors && this.v6PinwheelRotors.length > 0 && visGradientCanopy) {
       for (let r = 0; r < this.v6PinwheelRotors.length; r++) {
         const rotNode = this.v6PinwheelRotors[r];
         const phaseOff = r === 0 ? 0.0 : r === 1 ? 1.18 : 2.42;
@@ -13210,29 +13244,35 @@ export class OpenCampusWorld {
     }
     const pwSnap = snap.pinwheels || [];
     if (this.pinwheelV2RotorBatches && this.pinwheelV2RotorBatches.length > 0 && this.pinwheelV2Specs.length > 0) {
-      let activePwCount = 0;
-      for (let i = 0; i < this.pinwheelV2Specs.length; i++) {
-        if (this._hideVisitorFrontPinwheelIndices?.has(i)) continue;
-        const sp = this.pinwheelV2Specs[i];
-        if (isLowQuality && !inViewCone(sp.x, sp.z, 98.0, 24.0, 0.28)) continue;
-        const rawSpin = pwSnap[i]?.spinRad;
-        const spin = Number.isFinite(rawSpin) ? rawSpin : sp.baseSpin + simTime * 2.5;
-        _pos.set(sp.x, sp.y, sp.z);
-        _euler.set(0.0, sp.yaw, spin, "YXZ");
-        _quat.setFromEuler(_euler);
-        _scale.setScalar(sp.scale);
-        _mat4.compose(_pos, _quat, _scale);
+      if (!visPinwheels) {
         for (const rInst of this.pinwheelV2RotorBatches) {
-          rInst.setMatrixAt(activePwCount, _mat4);
+          rInst.visible = false;
         }
-        activePwCount++;
+      } else {
+        let activePwCount = 0;
+        for (let i = 0; i < this.pinwheelV2Specs.length; i++) {
+          if (this._hideVisitorFrontPinwheelIndices?.has(i)) continue;
+          const sp = this.pinwheelV2Specs[i];
+          if (isLowQuality && !inViewCone(sp.x, sp.z, 98.0, 24.0, 0.28)) continue;
+          const rawSpin = pwSnap[i]?.spinRad;
+          const spin = Number.isFinite(rawSpin) ? rawSpin : sp.baseSpin + simTime * 2.5;
+          _pos.set(sp.x, sp.y, sp.z);
+          _euler.set(0.0, sp.yaw, spin, "YXZ");
+          _quat.setFromEuler(_euler);
+          _scale.setScalar(sp.scale);
+          _mat4.compose(_pos, _quat, _scale);
+          for (const rInst of this.pinwheelV2RotorBatches) {
+            rInst.setMatrixAt(activePwCount, _mat4);
+          }
+          activePwCount++;
+        }
+        for (const rInst of this.pinwheelV2RotorBatches) {
+          rInst.count = activePwCount;
+          rInst.visible = activePwCount > 0;
+          if (activePwCount > 0) rInst.instanceMatrix.needsUpdate = true;
+        }
       }
-      for (const rInst of this.pinwheelV2RotorBatches) {
-        rInst.count = activePwCount;
-        rInst.visible = visPinwheels && activePwCount > 0;
-        if (activePwCount > 0) rInst.instanceMatrix.needsUpdate = true;
-      }
-    } else {
+    } else if (visPinwheels) {
       for (const batch of this.pinwheelInstancedByColor) {
         const { inst, items } = batch;
         for (let k = 0; k < items.length; k++) {
@@ -13387,6 +13427,8 @@ export class OpenCampusWorld {
     // 9. 16 Collectible `TPU_SPAWNS` (Active-Distance Compacted Instanced GLB + Beacon Rings + Ground Halos)
     const hasTpuGlb = this.tpuInstancedBatches.length > 0;
     let activeTpuGlbCount = 0;
+    let tpuRingsUpdated = false;
+    let tpuHalosUpdated = false;
     for (let i = 0; i < this.tpuVisuals.length; i++) {
       const tv = this.tpuVisuals[i];
       const ledgerItem = globalState.tpuLedger?.[i];
@@ -13394,13 +13436,19 @@ export class OpenCampusWorld {
 
       if (collected) {
         tv.root.visible = false;
-        _pos.set(tv.spec.x, -25.0, tv.spec.z);
-        _quat.identity();
-        _scale.setScalar(0.001);
-        _mat4.compose(_pos, _quat, _scale);
-        this.tpuHalosInstanced.setMatrixAt(i, _mat4);
-        if (this.tpuRingsInstanced) this.tpuRingsInstanced.setMatrixAt(i, _mat4);
+        if (!tv._hiddenMatrixSet) {
+          tv._hiddenMatrixSet = true;
+          _pos.set(tv.spec.x, -25.0, tv.spec.z);
+          _quat.identity();
+          _scale.setScalar(0.001);
+          _mat4.compose(_pos, _quat, _scale);
+          this.tpuHalosInstanced.setMatrixAt(i, _mat4);
+          if (this.tpuRingsInstanced) this.tpuRingsInstanced.setMatrixAt(i, _mat4);
+          tpuHalosUpdated = true;
+          tpuRingsUpdated = true;
+        }
       } else {
+        tv._hiddenMatrixSet = false;
         const bob = Math.sin(simTime * 3.2 + i * 0.7) * 0.065;
         const py = tv.baseY + bob;
         const rotY = simTime * 1.85 + i * 0.45;
@@ -13435,22 +13483,26 @@ export class OpenCampusWorld {
           }
           activeTpuGlbCount++;
         }
-        if (this.tpuRingsInstanced) {
-          _scale.setScalar(tv.hasBeaconRing ? 1.0 : 0.0001);
-          _mat4.compose(_pos, _quat, _scale);
-          this.tpuRingsInstanced.setMatrixAt(i, _mat4);
-        }
+        if (tpuInSight) {
+          if (this.tpuRingsInstanced) {
+            _scale.setScalar(tv.hasBeaconRing ? 1.0 : 0.0001);
+            _mat4.compose(_pos, _quat, _scale);
+            this.tpuRingsInstanced.setMatrixAt(i, _mat4);
+            tpuRingsUpdated = true;
+          }
 
-        const pulse = 0.92 + 0.16 * Math.sin(simTime * 4.4 + i);
-        _pos.set(tv.spec.x, tv.groundY + 0.025, tv.spec.z);
-        _quat.identity();
-        _scale.set(pulse, 1.0, pulse);
-        _mat4.compose(_pos, _quat, _scale);
-        this.tpuHalosInstanced.setMatrixAt(i, _mat4);
+          const pulse = 0.92 + 0.16 * Math.sin(simTime * 4.4 + i);
+          _pos.set(tv.spec.x, tv.groundY + 0.025, tv.spec.z);
+          _quat.identity();
+          _scale.set(pulse, 1.0, pulse);
+          _mat4.compose(_pos, _quat, _scale);
+          this.tpuHalosInstanced.setMatrixAt(i, _mat4);
+          tpuHalosUpdated = true;
+        }
       }
     }
-    this.tpuHalosInstanced.instanceMatrix.needsUpdate = true;
-    if (this.tpuRingsInstanced) this.tpuRingsInstanced.instanceMatrix.needsUpdate = true;
+    if (tpuHalosUpdated) this.tpuHalosInstanced.instanceMatrix.needsUpdate = true;
+    if (this.tpuRingsInstanced && tpuRingsUpdated) this.tpuRingsInstanced.instanceMatrix.needsUpdate = true;
     for (const inst of this.tpuInstancedBatches) {
       inst.count = activeTpuGlbCount;
       inst.visible = activeTpuGlbCount > 0;
@@ -13461,28 +13513,34 @@ export class OpenCampusWorld {
 
     // 10. Sidewalk Microkitchen Espresso Steam Wisps (`20` puffs, `0` green road boxes!)
     if (this.mkChevronsInstanced) {
-      for (let i = 0; i < this.mkBoostVisuals.length; i++) {
-        const slots = this.mkBoostVisuals[i].chevronSlots || [];
-        for (let c = 0; c < slots.length; c++) {
-          const sl = slots[c];
-          const wave = 0.45 + 0.55 * Math.sin(simTime * 7.5 - c * 1.1 + i);
-          const sc = 0.94 + 0.10 * wave;
-          _pos.set(sl.x, sl.y, sl.z);
-          _euler.set(0.0, sl.rotY, 0.0);
-          _quat.setFromEuler(_euler);
-          _scale.set(sc, 1.0, sc);
-          _mat4.compose(_pos, _quat, _scale);
-          this.mkChevronsInstanced.setMatrixAt(sl.idx, _mat4);
+      this.mkChevronsInstanced.visible = !enclosedInGym && !isVeryLowQuality;
+      if (!enclosedInGym && !isVeryLowQuality) {
+        for (let i = 0; i < this.mkBoostVisuals.length; i++) {
+          const slots = this.mkBoostVisuals[i].chevronSlots || [];
+          for (let c = 0; c < slots.length; c++) {
+            const sl = slots[c];
+            const wave = 0.45 + 0.55 * Math.sin(simTime * 7.5 - c * 1.1 + i);
+            const sc = 0.94 + 0.10 * wave;
+            _pos.set(sl.x, sl.y, sl.z);
+            _euler.set(0.0, sl.rotY, 0.0);
+            _quat.setFromEuler(_euler);
+            _scale.set(sc, 1.0, sc);
+            _mat4.compose(_pos, _quat, _scale);
+            this.mkChevronsInstanced.setMatrixAt(sl.idx, _mat4);
+          }
         }
+        this.mkChevronsInstanced.instanceMatrix.needsUpdate = true;
       }
-      this.mkChevronsInstanced.instanceMatrix.needsUpdate = true;
     }
 
     if (this.mkSteamInstanced && this.mkSteamSpecs.length > 0) {
-      this.mkSteamInstanced.visible = !enclosedInGym;
-      if (!enclosedInGym) {
+      const showSteam = !enclosedInGym && !isVeryLowQuality;
+      this.mkSteamInstanced.visible = showSteam;
+      if (showSteam) {
+        let steamUpdated = false;
         for (let i = 0; i < this.mkSteamSpecs.length; i++) {
           const sp = this.mkSteamSpecs[i];
+          if (isLowQuality && Math.hypot(sp.x - snap.x, sp.z - snap.z) > 65.0) continue;
           const u = (((simTime * 0.58 + sp.phase) % 1.0) + 1.0) % 1.0;
           const swirl = simTime * 1.7 + sp.driftAngle;
           const sx = sp.x + Math.cos(swirl) * (0.03 + u * 0.14);
@@ -13495,8 +13553,9 @@ export class OpenCampusWorld {
           _scale.set(Math.max(0.001, env * 1.12), Math.max(0.001, env * 0.92), Math.max(0.001, env * 1.12));
           _mat4.compose(_pos, _quat, _scale);
           this.mkSteamInstanced.setMatrixAt(sp.instanceIdx, _mat4);
+          steamUpdated = true;
         }
-        this.mkSteamInstanced.instanceMatrix.needsUpdate = true;
+        if (steamUpdated) this.mkSteamInstanced.instanceMatrix.needsUpdate = true;
       }
     }
 
@@ -13676,8 +13735,8 @@ export class OpenCampusWorld {
         inViewCone(
           pk.x,
           pk.z,
-          isLowQuality ? 56.0 : 155.0,
-          isLowQuality ? 14.0 : 28.0,
+          isVeryLowQuality ? 40.0 : isLowQuality ? 56.0 : 155.0,
+          isVeryLowQuality ? 10.0 : isLowQuality ? 14.0 : 28.0,
           0.18
         );
       if (!pkInSight) continue;

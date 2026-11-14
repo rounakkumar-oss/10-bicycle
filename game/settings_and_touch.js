@@ -3,7 +3,14 @@
  * and Multi-Touch On-Screen Controls for Mobile Devices.
  */
 
-import { DEMO_ACTIONS, DEMO_EVENTS, bus, state, dispatchAction } from "../contract.js";
+import {
+  DEMO_ACTIONS,
+  DEMO_EVENTS,
+  bus,
+  state,
+  dispatchAction,
+  normalizeQualityTier,
+} from "../contract.js";
 
 export function initGameSettingsAndTouch() {
   const btnOpenHub = document.getElementById("btn-settings-hub");
@@ -14,6 +21,7 @@ export function initGameSettingsAndTouch() {
   const selectQuality = document.getElementById("graphics-quality-select");
   const fpsSelect = document.getElementById("settings-fps-select");
   const btnSettingsAudio = document.getElementById("btn-settings-audio");
+  const btnSettingsXray = document.getElementById("btn-settings-xray");
   const btnToggleTouchPad = document.getElementById("btn-toggle-touch-controls");
   const statusBanner = document.getElementById("settings-status-banner");
   const statusText = document.getElementById("settings-status-text");
@@ -22,7 +30,6 @@ export function initGameSettingsAndTouch() {
   const touchButtons = Array.from(document.querySelectorAll("[data-touch-key]"));
   const touchHopBtn = document.getElementById("touch-btn-hop");
   const touchBellBtn = document.getElementById("touch-btn-bell");
-  const touchRoamBtn = document.getElementById("touch-btn-roam");
 
   const isMobileUa =
     typeof navigator !== "undefined" &&
@@ -50,6 +57,9 @@ export function initGameSettingsAndTouch() {
 
   function setTouchControlsVisible(visible) {
     isTouchControlsVisible = Boolean(visible);
+    if (typeof document !== "undefined" && document.body) {
+      document.body.classList.toggle("touch-controls-active", isTouchControlsVisible);
+    }
     if (touchControlsEl) {
       touchControlsEl.classList.toggle("is-hidden", !isTouchControlsVisible);
       touchControlsEl.hidden = !isTouchControlsVisible;
@@ -60,8 +70,8 @@ export function initGameSettingsAndTouch() {
       const lbl = btnToggleTouchPad.querySelector(".touch-toggle-label");
       if (lbl) {
         lbl.textContent = isTouchControlsVisible
-          ? "Hide On-Screen Touch Controls"
-          : "Enable Mobile Touch Controls";
+          ? "Touch Controls: ON"
+          : "Touch Controls: OFF";
       }
     }
   }
@@ -77,13 +87,38 @@ export function initGameSettingsAndTouch() {
     }
   }
 
+  function syncXrayButton(enabled = state.xrayEnabled) {
+    if (!btnSettingsXray) return;
+    const isOn = Boolean(enabled);
+    btnSettingsXray.setAttribute("aria-pressed", isOn ? "true" : "false");
+    btnSettingsXray.classList.toggle("is-active", isOn);
+    const lbl = btnSettingsXray.querySelector(".xray-toggle-label");
+    if (lbl) {
+      lbl.textContent = isOn ? "Drivetrain X-Ray: ON" : "Drivetrain X-Ray: OFF";
+    }
+  }
+
   function syncQualitySelect(tier = state.qualityTier) {
     if (!selectQuality) return;
-    const normalized = ["low", "medium", "high"].includes(String(tier).toLowerCase())
-      ? String(tier).toLowerCase()
-      : "low";
+    const normalized = normalizeQualityTier(tier);
     if (selectQuality.value !== normalized) {
       selectQuality.value = normalized;
+    }
+  }
+
+  function syncFpsSelect() {
+    if (!fpsSelect || typeof window === "undefined") return;
+    const cap = Number(window.__targetFpsCap) || 0;
+    const targetVal =
+      cap === 30
+        ? "30fps"
+        : cap === 45
+          ? "battery"
+          : cap === 120
+            ? "120fps"
+            : "60fps";
+    if (fpsSelect.value !== targetVal) {
+      fpsSelect.value = targetVal;
     }
   }
 
@@ -92,7 +127,9 @@ export function initGameSettingsAndTouch() {
     const isOpen = Boolean(open);
     if (isOpen) {
       syncQualitySelect(state.qualityTier);
+      syncFpsSelect();
       syncAudioButton(state.audioEnabled);
+      syncXrayButton(state.xrayEnabled);
     }
     modal.classList.toggle("is-hidden", !isOpen);
     modal.hidden = !isOpen;
@@ -105,7 +142,9 @@ export function initGameSettingsAndTouch() {
   // Initialize states
   setTouchControlsVisible(isTouchControlsVisible);
   syncQualitySelect(state.qualityTier);
+  syncFpsSelect();
   syncAudioButton(state.audioEnabled);
+  syncXrayButton(state.xrayEnabled);
 
   if (btnOpenHub) {
     btnOpenHub.addEventListener("click", () => {
@@ -122,13 +161,13 @@ export function initGameSettingsAndTouch() {
 
   if (selectQuality) {
     selectQuality.addEventListener("change", () => {
-      const targetTier = selectQuality.value || "low";
+      const targetTier = normalizeQualityTier(selectQuality.value || "low");
       dispatchAction(DEMO_ACTIONS.SET_QUALITY, {
         qualityTier: targetTier,
         forceExternal: true,
       });
       showStatus(
-        `Graphics Quality set to ${targetTier.toUpperCase()} (all 16 realistic 3D models & PBR textures preserved).`,
+        `Graphics set to ${targetTier.replace("_", " ").toUpperCase()} (all 16 realistic 3D models & PBR textures intact).`,
         "success"
       );
     });
@@ -137,7 +176,9 @@ export function initGameSettingsAndTouch() {
   if (fpsSelect) {
     fpsSelect.addEventListener("change", () => {
       const val = fpsSelect.value;
-      if (val === "battery") {
+      if (val === "30fps") {
+        window.__targetFpsCap = 30;
+      } else if (val === "battery") {
         window.__targetFpsCap = 45;
       } else if (val === "120fps") {
         window.__targetFpsCap = 120;
@@ -146,11 +187,13 @@ export function initGameSettingsAndTouch() {
       }
       showStatus(
         `Frame pacing set to ${
-          val === "battery"
-            ? "Battery Saver (45 FPS thermal cap)"
-            : val === "120fps"
-              ? "120Hz High-Refresh"
-              : "60 FPS Locked"
+          val === "30fps"
+            ? "30 FPS Ultra Battery Saver"
+            : val === "battery"
+              ? "45 FPS Battery Saver"
+              : val === "120fps"
+                ? "120Hz High-Refresh"
+                : "60 FPS Locked"
         }.`,
         "success"
       );
@@ -164,6 +207,18 @@ export function initGameSettingsAndTouch() {
       syncAudioButton(next);
       showStatus(
         next ? "Soundtrack & campus acoustics enabled." : "Audio muted (0% audio CPU usage).",
+        "info"
+      );
+    });
+  }
+
+  if (btnSettingsXray) {
+    btnSettingsXray.addEventListener("click", () => {
+      const next = !state.xrayEnabled;
+      dispatchAction(DEMO_ACTIONS.TOGGLE_XRAY, { enabled: next, source: "settings_modal" });
+      syncXrayButton(next);
+      showStatus(
+        next ? "Drivetrain X-Ray telemetry opened." : "Drivetrain X-Ray closed.",
         "info"
       );
     });
@@ -189,8 +244,12 @@ export function initGameSettingsAndTouch() {
   const onAudioToggled = (e) => {
     syncAudioButton(Boolean(e.detail?.enabled ?? state.audioEnabled));
   };
+  const onXrayToggled = (e) => {
+    syncXrayButton(Boolean(e.detail?.enabled ?? state.xrayEnabled));
+  };
   bus.addEventListener(DEMO_EVENTS.QUALITY_CHANGED, onQualityChanged);
   bus.addEventListener(DEMO_EVENTS.AUDIO_TOGGLED, onAudioToggled);
+  bus.addEventListener(DEMO_EVENTS.XRAY_TOGGLED, onXrayToggled);
 
   function setTouchKey(keyName, isDown) {
     if (typeof window === "undefined") return;
@@ -254,20 +313,13 @@ export function initGameSettingsAndTouch() {
     });
   }
 
-  if (touchRoamBtn) {
-    touchRoamBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      const nextRoam = state.gameMode !== "free_roam";
-      dispatchAction(DEMO_ACTIONS.SET_FREE_ROAM, { enabled: nextRoam, source: "mobile_touch" });
-    });
-  }
-
   return {
     setModalOpen,
     setTouchControlsVisible,
     dispose() {
       bus.removeEventListener(DEMO_EVENTS.QUALITY_CHANGED, onQualityChanged);
       bus.removeEventListener(DEMO_EVENTS.AUDIO_TOGGLED, onAudioToggled);
+      bus.removeEventListener(DEMO_EVENTS.XRAY_TOGGLED, onXrayToggled);
       if (statusTimerId) clearTimeout(statusTimerId);
     },
   };

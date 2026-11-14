@@ -1703,6 +1703,10 @@ export function updateTwoTierShadows(params = {}) {
         ? ctx.moveThresholdM
         : OMNI_V5_LIGHTING_TELEMETRY.staticShadowMoveRebuildThresholdM;
 
+  if (ctx && ctx.qualityTier === "very_low") {
+    return _twoTierShadowStatus;
+  }
+
   const [hx, , hz] = extractFocusPoint(heroPos, camera);
 
   let layerSummary = null;
@@ -2339,7 +2343,7 @@ export function configureAAASunShadowsAndAtmosphere(
     }
     if (spinStudioSunbeams) {
       spinStudioSunbeams.update(seqSec, {
-        nearGym: nearGym && twoTierState.qualityTier !== "low",
+        nearGym: nearGym && twoTierState.qualityTier !== "low" && twoTierState.qualityTier !== "very_low",
       });
     }
 
@@ -2509,38 +2513,69 @@ export function configureAAASunShadowsAndAtmosphere(
     syncHorizonAerialPerspective,
     updateFrame,
     setShadowQualityTier: (tier = "low", opts = {}) => {
-      const cleanTier = ["high", "medium", "low"].includes(tier) ? tier : "low";
+      const cleanRaw = String(tier || "low").toLowerCase();
+      const cleanTier = ["very_low", "low", "medium", "high", "ultra"].includes(cleanRaw)
+        ? cleanRaw
+        : "low";
       twoTierState.qualityTier = cleanTier;
       const isSw = Boolean(isSoftwareRenderer || opts.isSoftwareRenderer);
       const isFast1080p = Boolean(opts.isFast1080pCpuTier);
+      const isWeakMobile = Boolean(opts.isWeakMobile);
+      const shadowsActive = cleanTier !== "very_low";
 
-      const nextStaticSize = isFast1080p
-        ? 1536
+      if (renderer && renderer.shadowMap) {
+        renderer.shadowMap.enabled = shadowsActive;
+      }
+      if (sunLight) {
+        sunLight.castShadow = shadowsActive;
+      }
+      if (dynamicSunLight) {
+        dynamicSunLight.castShadow = shadowsActive;
+      }
+
+      const nextStaticSize = !shadowsActive
+        ? 512
+        : isFast1080p
+          ? 1536
+          : isSw
+            ? cleanTier === "low"
+              ? 1024
+              : 2048
+            : cleanTier === "ultra" || cleanTier === "high"
+              ? 4096
+              : cleanTier === "medium"
+                ? 2048
+                : isWeakMobile
+                  ? 768
+                  : 1024;
+      const nextDynSize = !shadowsActive
+        ? 256
         : isSw
           ? cleanTier === "low"
-            ? 1024
-            : 2048
-          : cleanTier === "high"
-            ? 4096
+            ? 512
+            : 1024
+          : cleanTier === "ultra" || cleanTier === "high"
+            ? 2048
             : cleanTier === "medium"
-              ? 2048
-              : 1024;
-      const nextDynSize = isSw
-        ? cleanTier === "low"
-          ? 512
-          : 1024
-        : cleanTier === "high"
-          ? 2048
-          : cleanTier === "medium"
-            ? 1024
-            : 512;
-      const nextGymSize = cleanTier === "high" && !isSw ? 1024 : 512;
+              ? 1024
+              : 512;
+      const nextGymSize = (cleanTier === "ultra" || cleanTier === "high") && !isSw ? 1024 : 512;
 
       twoTierState.moveThresholdM =
-        cleanTier === "low" ? 14.0 : cleanTier === "medium" ? 8.0 : 4.5;
-      twoTierState.dynamicUpdateInterval = cleanTier === "low" ? 3 : 1;
+        cleanTier === "very_low"
+          ? 20.0
+          : cleanTier === "low"
+            ? 14.0
+            : cleanTier === "medium"
+              ? 8.0
+              : cleanTier === "ultra"
+                ? 3.0
+                : 4.5;
+      twoTierState.dynamicUpdateInterval =
+        cleanTier === "very_low" ? 6 : cleanTier === "low" ? 3 : 1;
 
       if (
+        shadowsActive &&
         sunLight &&
         sunLight.shadow &&
         (sunLight.shadow.mapSize.x !== nextStaticSize ||
@@ -2555,6 +2590,7 @@ export function configureAAASunShadowsAndAtmosphere(
       }
 
       if (
+        shadowsActive &&
         dynamicSunLight &&
         dynamicSunLight.shadow &&
         (dynamicSunLight.shadow.mapSize.x !== nextDynSize ||
@@ -2568,10 +2604,11 @@ export function configureAAASunShadowsAndAtmosphere(
         dynamicSunLight.shadow.needsUpdate = true;
       }
       if (dynamicSunLight && dynamicSunLight.shadow) {
-        dynamicSunLight.shadow.autoUpdate = twoTierState.dynamicUpdateInterval <= 1;
+        dynamicSunLight.shadow.autoUpdate = shadowsActive && twoTierState.dynamicUpdateInterval <= 1;
       }
 
       if (
+        shadowsActive &&
         spinStudioWindowRig &&
         spinStudioWindowRig.spotLight &&
         spinStudioWindowRig.spotLight.shadow &&
@@ -2587,14 +2624,17 @@ export function configureAAASunShadowsAndAtmosphere(
       }
 
       if (spinStudioSunbeams && typeof spinStudioSunbeams.setActive === "function") {
-        spinStudioSunbeams.setActive(twoTierState.enclosedGym && cleanTier !== "low");
+        spinStudioSunbeams.setActive(
+          twoTierState.enclosedGym && cleanTier !== "low" && cleanTier !== "very_low"
+        );
       }
 
       if (typeof window !== "undefined" && window.__V5_LIGHTING_CONFIG__) {
-        window.__V5_LIGHTING_CONFIG__.shadowMapSize = nextStaticSize;
-        window.__V5_LIGHTING_CONFIG__.texelSizeM = (halfExtentM * 2.0) / nextStaticSize;
-        window.__V5_LIGHTING_CONFIG__.dynamicShadowMapSize = nextDynSize;
-        window.__V5_LIGHTING_CONFIG__.dynamicTexelSizeM = (dynamicHalfExtentM * 2.0) / nextDynSize;
+        window.__V5_LIGHTING_CONFIG__.shadowMapSize = shadowsActive ? nextStaticSize : 0;
+        window.__V5_LIGHTING_CONFIG__.texelSizeM = (halfExtentM * 2.0) / Math.max(1, nextStaticSize);
+        window.__V5_LIGHTING_CONFIG__.dynamicShadowMapSize = shadowsActive ? nextDynSize : 0;
+        window.__V5_LIGHTING_CONFIG__.dynamicTexelSizeM =
+          (dynamicHalfExtentM * 2.0) / Math.max(1, nextDynSize);
       }
     },
     updateShadowFrustum: (focusPos, camera = null, opts = {}) =>

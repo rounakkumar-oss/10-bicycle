@@ -1246,43 +1246,63 @@ export function createAAAInstancedGrassSystem(THREE, options = {}) {
   function cullForCamera(camera, isFast1080pSoftware = false, qualityTier = "high") {
     if (!camera || !grassGroup.visible) return;
     syncFocusFromCamera(camera);
+    const isVeryLow = !isFast1080pSoftware && qualityTier === "very_low";
     const isLow = !isFast1080pSoftware && qualityTier === "low";
     const isMed = !isFast1080pSoftware && qualityTier === "medium";
+    const isUltra = !isFast1080pSoftware && qualityTier === "ultra";
     const maxCamDist = isFast1080pSoftware
       ? 36.0
-      : isLow
-        ? 54.0
-        : isMed
-          ? 68.0
-          : baseMaxDrawRadius;
+      : isVeryLow
+        ? 34.0
+        : isLow
+          ? 52.0
+          : isMed
+            ? 68.0
+            : isUltra
+              ? 96.0
+              : baseMaxDrawRadius;
     uniforms.uThinStartM.value = isFast1080pSoftware
       ? 0.0
-      : isLow
-        ? 16.0
-        : isMed
-          ? 22.0
-          : (options.thinStartM ?? 28.0);
+      : isVeryLow
+        ? 8.0
+        : isLow
+          ? 15.0
+          : isMed
+            ? 22.0
+            : isUltra
+              ? 34.0
+              : (options.thinStartM ?? 28.0);
     uniforms.uThinEndM.value = isFast1080pSoftware
       ? 28.0
-      : isLow
-        ? 48.0
-        : isMed
-          ? 62.0
-          : (options.thinEndM ?? 75.0);
+      : isVeryLow
+        ? 30.0
+        : isLow
+          ? 46.0
+          : isMed
+            ? 62.0
+            : isUltra
+              ? 88.0
+              : (options.thinEndM ?? 75.0);
     uniforms.uThinMinKeep.value = isFast1080pSoftware
       ? 1.0
-      : isLow
-        ? 0.18
-        : isMed
-          ? 0.20
-          : baseThinMinKeep;
+      : isVeryLow
+        ? 0.12
+        : isLow
+          ? 0.18
+          : isMed
+            ? 0.20
+            : isUltra
+              ? 0.30
+              : baseThinMinKeep;
     uniforms.uThinWidthBoost.value = isFast1080pSoftware
       ? 1.92
-      : isLow
-        ? 1.65
-        : isMed
-          ? 1.52
-          : baseThinWidthBoost;
+      : isVeryLow
+        ? 1.75
+        : isLow
+          ? 1.65
+          : isMed
+            ? 1.52
+            : baseThinWidthBoost;
     uniforms.uMaxDrawRadius.value = maxCamDist;
     const camX = camera.position.x;
     const camY = camera.position.y;
@@ -1327,11 +1347,17 @@ export function createAAAInstancedGrassSystem(THREE, options = {}) {
         const sKeep = tKeep * tKeep * (3.0 - 2.0 * tKeep);
         const frac = 0.28 * (1.0 - 0.78 * sKeep);
         te.mesh.count = Math.max(1, Math.round(te.fullCount * frac));
+      } else if (isVeryLow) {
+        const nearEdge = Math.max(0.0, dist - te.rad * 0.5);
+        const tKeep = Math.min(1.0, Math.max(0.0, (nearEdge - 6.0) / 24.0));
+        const sKeep = tKeep * tKeep * (3.0 - 2.0 * tKeep);
+        const frac = 0.38 * (1.0 - 0.72 * sKeep);
+        te.mesh.count = Math.max(1, Math.round(te.fullCount * frac));
       } else if (isLow) {
         const nearEdge = Math.max(0.0, dist - te.rad * 0.5);
         const tKeep = Math.min(1.0, Math.max(0.0, (nearEdge - 10.0) / 38.0));
         const sKeep = tKeep * tKeep * (3.0 - 2.0 * tKeep);
-        const frac = 0.76 * (1.0 - 0.62 * sKeep);
+        const frac = 0.68 * (1.0 - 0.62 * sKeep);
         te.mesh.count = Math.max(1, Math.round(te.fullCount * frac));
       } else if (isMed) {
         const nearEdge = Math.max(0.0, dist - te.rad * 0.5);

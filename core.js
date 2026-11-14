@@ -19,6 +19,7 @@ import {
   GYM_BREAKOUT_CONFIG,
   DEMO_ACTIONS,
   DEMO_EVENTS,
+  normalizeQualityTier,
 } from "./contract.js";
 import {
   solveDrivetrainKinematics,
@@ -1375,8 +1376,15 @@ export class DemoCore {
 
     const texList = Array.from(uniqueTextures);
     const TEX_BATCH = this.isMobileDevice ? 4 : 8;
+    const maxCapAniso = this.renderer?.capabilities?.getMaxAnisotropy?.() || 16;
     const targetAniso =
-      this.qualityTier === "low" ? 1 : this.qualityTier === "medium" ? 4 : 8;
+      this.qualityTier === "very_low" || this.qualityTier === "low"
+        ? 1
+        : this.qualityTier === "medium"
+          ? 4
+          : this.qualityTier === "ultra"
+            ? Math.min(16, maxCapAniso)
+            : Math.min(8, maxCapAniso);
     const isAutomatedClockBoot = Boolean(
       typeof window !== "undefined" && (window.__virtualClock || window.__externalClock)
     );
@@ -2053,37 +2061,79 @@ export class DemoCore {
     );
     const initFlags = parseInitialUrlFlags();
     const isExtBoot = typeof window !== "undefined" && Boolean(window.__externalClock);
-    const initTier = isExtBoot ? "high" : initFlags.qualityTier || "low";
+    const initTier = isExtBoot ? "high" : normalizeQualityTier(initFlags.qualityTier || "low");
     this.qualityTier = initTier;
     this.maxDprForQuality =
-      initTier === "low"
+      initTier === "very_low"
         ? this.isWeakMobileDevice
-          ? 0.9
-          : 1.0
-        : initTier === "medium"
-          ? 1.35
-          : 2.0;
+          ? 0.75
+          : 0.85
+        : initTier === "low"
+          ? this.isWeakMobileDevice
+            ? 0.88
+            : 1.0
+          : initTier === "medium"
+            ? 1.35
+            : initTier === "ultra"
+              ? 2.5
+              : 2.0;
     this._governedRetinaDprCap = this.maxDprForQuality;
     this._particleQualityScale =
-      initTier === "low" ? 0.35 : initTier === "medium" ? 0.7 : 1.0;
-
-    const initStaticShadowMapSize = isFast1080pCpuShadow
-      ? 1536
-      : this.isSoftwareRenderer || isCaptureSwCpu
-        ? initTier === "low"
-          ? 1024
-          : 2048
-        : initTier === "high"
-          ? 4096
+      initTier === "very_low"
+        ? 0.15
+        : initTier === "low"
+          ? 0.35
           : initTier === "medium"
-            ? 2048
-            : 1024;
-    const initDynamicShadowMapSize =
-      this.isSoftwareRenderer || isCaptureSwCpu
+            ? 0.7
+            : initTier === "ultra"
+              ? 1.25
+              : 1.0;
+
+    if (this.scene && "environmentIntensity" in this.scene) {
+      this.scene.environmentIntensity =
+        initTier === "very_low"
+          ? 0.55
+          : initTier === "low"
+            ? 0.78
+            : initTier === "medium"
+              ? 0.95
+              : 1.0;
+    }
+
+    const shadowsInitEnabled = initTier !== "very_low";
+    if (this.renderer && this.renderer.shadowMap) {
+      this.renderer.shadowMap.enabled = shadowsInitEnabled;
+      this.renderer.shadowMap.type =
+        isCaptureSwCpu || !shadowsInitEnabled || (initTier === "low" && this.isWeakMobileDevice)
+          ? THREE.BasicShadowMap
+          : initTier === "high" || initTier === "ultra"
+            ? THREE.PCFSoftShadowMap
+            : THREE.PCFShadowMap;
+    }
+    this.sunLight.castShadow = shadowsInitEnabled;
+
+    const initStaticShadowMapSize = !shadowsInitEnabled
+      ? 512
+      : isFast1080pCpuShadow
+        ? 1536
+        : this.isSoftwareRenderer || isCaptureSwCpu
+          ? initTier === "low"
+            ? 1024
+            : 2048
+          : initTier === "high" || initTier === "ultra"
+            ? 4096
+            : initTier === "medium"
+              ? 2048
+              : this.isWeakMobileDevice
+                ? 768
+                : 1024;
+    const initDynamicShadowMapSize = !shadowsInitEnabled
+      ? 256
+      : this.isSoftwareRenderer || isCaptureSwCpu
         ? initTier === "low"
           ? 512
           : 1024
-        : initTier === "high"
+        : initTier === "high" || initTier === "ultra"
           ? 2048
           : initTier === "medium"
             ? 1024
@@ -2173,24 +2223,38 @@ export class DemoCore {
         dynamicShadowMapSize: initDynamicShadowMapSize,
         dynamicHalfExtentM: 10.5,
         gymShadowMapSize:
-          initTier === "high" && !this.isSoftwareRenderer && !isCaptureSwCpu ? 1024 : 512,
-        moveThresholdM: initTier === "low" ? 14.0 : initTier === "medium" ? 8.0 : 4.5,
-        dynamicUpdateInterval: initTier === "low" ? 3 : 1,
+          (initTier === "high" || initTier === "ultra") &&
+          !this.isSoftwareRenderer &&
+          !isCaptureSwCpu
+            ? 1024
+            : 512,
+        moveThresholdM:
+          initTier === "very_low"
+            ? 20.0
+            : initTier === "low"
+              ? 14.0
+              : initTier === "medium"
+                ? 8.0
+                : initTier === "ultra"
+                  ? 3.0
+                  : 4.5,
+        dynamicUpdateInterval: initTier === "very_low" ? 6 : initTier === "low" ? 3 : 1,
         qualityTier: initTier,
         enableHorizonAerialPerspective: false,
         bakeEnvironment: false,
       }
     );
 
-    // V7 Single-Pass Fused Cinema Post-FX on HIGH GPU tier; LOW/MEDIUM and SwiftShader use direct single-pass ACES + `opticsOverlay` (`0` offscreen depth FBO copy!)
+    // V7 Single-Pass Fused Cinema Post-FX on HIGH/ULTRA GPU tiers; VERY_LOW/LOW/MEDIUM and SwiftShader use direct single-pass ACES + `opticsOverlay` (`0` offscreen depth FBO copy!)
     if (typeof createCinemaPostFXPipeline === "function") {
       try {
+        const useHighPost = initTier === "high" || initTier === "ultra";
         this.postFX = createCinemaPostFXPipeline(THREE, this.renderer, {
           isSoftwareRenderer: Boolean(this.isSoftwareRenderer || isCaptureSwCpu),
-          enabled: initTier === "high" && !this.isSoftwareRenderer && !isCaptureSwCpu,
-          samples: initTier === "high" ? 4 : 0,
+          enabled: useHighPost && !this.isSoftwareRenderer && !isCaptureSwCpu,
+          samples: useHighPost ? 4 : 0,
           softwareSamples: 0,
-          aoStrength: isCaptureSwCpu || initTier === "low" ? 0 : 0.28,
+          aoStrength: isCaptureSwCpu || !useHighPost ? 0 : 0.28,
           dofStrength: 0,
           vignetteMesh: this.vignetteQuad,
         });
@@ -4658,33 +4722,54 @@ diffuseColor.a *= vPuffAlpha;`
   }
 
   /**
-   * Adaptive GPU Quality Tier controller (`low` | `medium` | `high`).
+   * Adaptive GPU Quality Tier controller (`very_low` | `low` | `medium` | `high` | `ultra`).
    * Launches in `'low'` by default for fast mobile performance while preserving 100% of realistic 3D models & 2K PBR textures.
    * Strictly locks `'high'` (`4096×4096` shadows on hardware GPU) whenever `window.__externalClock === true`!
    */
   setQualityTier(requestedTier = "low") {
     const isExternal = typeof window !== "undefined" && window.__externalClock === true;
-    const tier = isExternal
-      ? "high"
-      : ["high", "medium", "low"].includes(String(requestedTier).toLowerCase())
-        ? String(requestedTier).toLowerCase()
-        : "low";
+    const tier = isExternal ? "high" : normalizeQualityTier(requestedTier);
 
     this.qualityTier = tier;
     state.qualityTier = tier;
     this.maxDprForQuality =
-      tier === "low"
+      tier === "very_low"
         ? this.isWeakMobileDevice
-          ? 0.9
-          : 1.0
-        : tier === "medium"
-          ? 1.35
-          : 2.0;
+          ? 0.75
+          : 0.85
+        : tier === "low"
+          ? this.isWeakMobileDevice
+            ? 0.88
+            : 1.0
+          : tier === "medium"
+            ? 1.35
+            : tier === "ultra"
+              ? 2.5
+              : 2.0;
     this._governedRetinaDprCap = this.maxDprForQuality;
     this._dprFrameDeltaCount = 0;
     this._lastPerfNowMs = 0;
     this._particleQualityScale =
-      tier === "low" ? 0.35 : tier === "medium" ? 0.7 : 1.0;
+      tier === "very_low"
+        ? 0.15
+        : tier === "low"
+          ? 0.35
+          : tier === "medium"
+            ? 0.7
+            : tier === "ultra"
+              ? 1.25
+              : 1.0;
+
+    if (this.scene && "environmentIntensity" in this.scene) {
+      this.scene.environmentIntensity =
+        tier === "very_low"
+          ? 0.55
+          : tier === "low"
+            ? 0.78
+            : tier === "medium"
+              ? 0.95
+              : 1.0;
+    }
 
     const isFast1080pCpuTier = Boolean(
       (this.isSoftwareRenderer || this.isCaptureSwCpu) &&
@@ -4693,11 +4778,16 @@ diffuseColor.a *= vPuffAlpha;`
         this.renderer.domElement.width <= 1920
     );
 
+    const shadowsEnabled = tier !== "very_low";
     if (this.renderer && this.renderer.shadowMap) {
+      this.renderer.shadowMap.enabled = shadowsEnabled;
       const nextShadowType =
-        this.isSoftwareRenderer || this.isCaptureSwCpu || (tier === "low" && this.isWeakMobileDevice)
+        this.isSoftwareRenderer ||
+        this.isCaptureSwCpu ||
+        !shadowsEnabled ||
+        (tier === "low" && this.isWeakMobileDevice)
           ? THREE.BasicShadowMap
-          : tier === "high"
+          : tier === "high" || tier === "ultra"
             ? THREE.PCFSoftShadowMap
             : THREE.PCFShadowMap;
       if (this.renderer.shadowMap.type !== nextShadowType) {
@@ -4710,50 +4800,70 @@ diffuseColor.a *= vPuffAlpha;`
       this.v5Lighting.setShadowQualityTier(tier, {
         isSoftwareRenderer: Boolean(this.isSoftwareRenderer || this.isCaptureSwCpu),
         isFast1080pCpuTier,
+        isWeakMobile: this.isWeakMobileDevice,
       });
     } else {
-      const targetShadowSize = isFast1080pCpuTier
-        ? 1536
-        : this.isSoftwareRenderer || this.isCaptureSwCpu
-          ? tier === "low"
-            ? 1024
-            : 2048
-          : tier === "high"
-            ? 4096
-            : tier === "medium"
-              ? 2048
-              : 1024;
-      if (
-        this.sunLight &&
-        (this.sunLight.shadow.mapSize.width !== targetShadowSize ||
-          this.sunLight.shadow.mapSize.height !== targetShadowSize)
-      ) {
-        this.sunLight.shadow.mapSize.set(targetShadowSize, targetShadowSize);
-        if (this.sunLight.shadow.map) {
-          this.sunLight.shadow.map.dispose();
-          this.sunLight.shadow.map = null;
+      const targetShadowSize = !shadowsEnabled
+        ? 512
+        : isFast1080pCpuTier
+          ? 1536
+          : this.isSoftwareRenderer || this.isCaptureSwCpu
+            ? tier === "low"
+              ? 1024
+              : 2048
+            : tier === "high" || tier === "ultra"
+              ? 4096
+              : tier === "medium"
+                ? 2048
+                : this.isWeakMobileDevice
+                  ? 768
+                  : 1024;
+      if (this.sunLight) {
+        this.sunLight.castShadow = shadowsEnabled;
+        if (
+          shadowsEnabled &&
+          (this.sunLight.shadow.mapSize.width !== targetShadowSize ||
+            this.sunLight.shadow.mapSize.height !== targetShadowSize)
+        ) {
+          this.sunLight.shadow.mapSize.set(targetShadowSize, targetShadowSize);
+          if (this.sunLight.shadow.map) {
+            this.sunLight.shadow.map.dispose();
+            this.sunLight.shadow.map = null;
+          }
+          this.sunLight.shadow.needsUpdate = true;
         }
-        this.sunLight.shadow.needsUpdate = true;
       }
     }
 
-    // Post-processing: full HDR + Bloom + DoF + AO in HIGH; direct single-pass ACES + opticsOverlay in LOW & MEDIUM
+    // Post-processing: full HDR + Bloom + DoF + AO in HIGH/ULTRA; direct single-pass ACES + opticsOverlay in VERY_LOW, LOW & MEDIUM
     if (this.postFX && typeof this.postFX.setEnabled === "function") {
       const enablePostFX =
-        tier === "high" && !this.isSoftwareRenderer && !this.isCaptureSwCpu;
+        (tier === "high" || tier === "ultra") &&
+        !this.isSoftwareRenderer &&
+        !this.isCaptureSwCpu;
       this.postFX.setEnabled(enablePostFX);
     }
 
     // Update texture anisotropy & World-Cohesion Parallax Occlusion Mapping (POM) scale without shader recompilation
-    const targetAniso = tier === "low" ? 1 : tier === "medium" ? 4 : 8;
+    const maxCapAniso = this.renderer?.capabilities?.getMaxAnisotropy?.() || 16;
+    const targetAniso =
+      tier === "very_low" || tier === "low"
+        ? 1
+        : tier === "medium"
+          ? 4
+          : tier === "ultra"
+            ? Math.min(16, maxCapAniso)
+            : Math.min(8, maxCapAniso);
     const targetPomScale =
       this.isSoftwareRenderer || this.isCaptureSwCpu
         ? 0.0
-        : tier === "low"
+        : tier === "very_low" || tier === "low"
           ? 0.0
           : tier === "medium"
             ? 0.5
-            : 1.0;
+            : tier === "ultra"
+              ? 1.25
+              : 1.0;
     if (this.scene) {
       const seenTex = new Set();
       this.scene.traverse((obj) => {
@@ -4780,13 +4890,16 @@ diffuseColor.a *= vPuffAlpha;`
 
     if (this.world) {
       this.world._cullForceRebuild = true;
+      if (typeof this.world.setQualityTier === "function") {
+        this.world.setQualityTier(tier, this.renderer?.getPixelRatio?.() || 1.0);
+      }
       if (this.world.v5Grass?.cullForCamera) {
         this.world.v5Grass.cullForCamera(this.camera, isFast1080pCpuTier, tier);
       }
     }
 
     this.resize();
-    if (this.renderer && this.renderer.shadowMap) {
+    if (shadowsEnabled && this.renderer && this.renderer.shadowMap) {
       this.renderer.shadowMap.needsUpdate = true;
     }
   }
@@ -5833,18 +5946,22 @@ diffuseColor.a *= vPuffAlpha;`
             if (
               (window.devicePixelRatio || 1) >= 2.0 &&
               this._governedRetinaDprCap > 1.5 &&
-              this.qualityTier === "high" &&
+              (this.qualityTier === "high" || this.qualityTier === "ultra") &&
               avgMs > 18.5
             ) {
               this._governedRetinaDprCap = 1.5;
+              this._dprFrameDeltaCount = 0;
               this.resize();
             } else if (
               this.isMobileDevice &&
-              this._governedRetinaDprCap > 0.8 &&
+              this._governedRetinaDprCap > 0.72 &&
               avgMs > 23.0
             ) {
-              this._governedRetinaDprCap = Math.max(0.8, this._governedRetinaDprCap - 0.15);
-              this._particleQualityScale = Math.min(this._particleQualityScale, 0.25);
+              this._governedRetinaDprCap = Math.max(0.72, this._governedRetinaDprCap - 0.14);
+              this._particleQualityScale = Math.max(
+                0.15,
+                Math.min(this._particleQualityScale, 0.25)
+              );
               this._dprFrameDeltaCount = 0;
               this.resize();
             }

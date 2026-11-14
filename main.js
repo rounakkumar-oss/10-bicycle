@@ -63,6 +63,14 @@ if (typeof window !== "undefined") {
     };
   }
   window.__externalClock = Boolean(window.__externalClock || window.__virtualClock);
+  if (
+    !window.__externalClock &&
+    !(Number(window.__targetFpsCap) > 0) &&
+    typeof navigator !== "undefined" &&
+    /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || "")
+  ) {
+    window.__targetFpsCap = 60;
+  }
   window.__inputKeys = window.__inputKeys || {
     up: false,
     down: false,
@@ -601,7 +609,18 @@ function boot() {
   dispatchAction(DEMO_ACTIONS.SET_QUALITY, {
     qualityTier: window.__externalClock ? "high" : flags.qualityTier,
   });
-  dispatchAction(DEMO_ACTIONS.TOGGLE_MINIMAP, { visible: Boolean(flags.minimapVisible) });
+  const searchParams = new URLSearchParams(window.location.search || "");
+  const hasExplicitMapParam = searchParams.has("map") || searchParams.has("minimap");
+  const isCompactTouchLandscape = Boolean(
+    typeof window !== "undefined" &&
+      !window.__externalClock &&
+      (window.matchMedia?.("(pointer: coarse)")?.matches ||
+        /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || "")) &&
+      window.innerHeight <= 560
+  );
+  dispatchAction(DEMO_ACTIONS.TOGGLE_MINIMAP, {
+    visible: hasExplicitMapParam ? Boolean(flags.minimapVisible) : !isCompactTouchLandscape && Boolean(flags.minimapVisible),
+  });
 
   if (flags.xrayEnabled) {
     dispatchAction(DEMO_ACTIONS.TOGGLE_XRAY, { enabled: true });
@@ -635,8 +654,8 @@ function boot() {
     }
     const targetFpsCap = Number(window.__targetFpsCap) || 0;
     const elapsedMs = timestamp - lastRafTimestamp;
-    if (targetFpsCap > 0 && targetFpsCap < 60) {
-      const minFrameMs = 1000 / targetFpsCap - 1.2;
+    if (targetFpsCap > 0 && targetFpsCap < 120) {
+      const minFrameMs = 1000 / targetFpsCap - 2.0;
       if (elapsedMs >= 0 && elapsedMs < minFrameMs) {
         if (!window.__externalClock) {
           rafId = requestAnimationFrame(loop);
