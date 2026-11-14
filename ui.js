@@ -1938,16 +1938,6 @@ export function initUI() {
     });
   }
 
-  if (graphicsQualitySelect) {
-    graphicsQualitySelect.addEventListener("change", () => {
-      const targetTier = graphicsQualitySelect.value || "low";
-      dispatchAction(DEMO_ACTIONS.SET_QUALITY, {
-        qualityTier: targetTier,
-        forceExternal: true,
-      });
-    });
-  }
-
   if (btnExpandMinimap) {
     btnExpandMinimap.addEventListener("click", () => {
       recordDomClick("expand-minimap");

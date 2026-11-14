@@ -654,6 +654,8 @@ export class DemoCore {
     this.sunsetEnvMap = null;
     this._usingSunsetEnv = false;
     this._assetsFinalized = false;
+    this._contextLost = false;
+    this._disposed = false;
     this.isReady = false;
     this._camAvoidCurrent = new THREE.Vector3();
     this._camAvoidActive = false;
@@ -818,11 +820,12 @@ export class DemoCore {
     const STAGE_3_LABEL = "Warming up golden-hour shaders & shadows…";
     const STAGE_4_LABEL = "Tuning soundtrack & campus acoustics…";
 
-    // =========================================================================
-    // STAGE 1 (0%–45%): Essential Startup Assets First + Progressive Campus GLBs
-    // =========================================================================
-    this._reportPreload(4, STAGE_1_LABEL);
-    await this._yieldPreloadFrame();
+    try {
+      // =========================================================================
+      // STAGE 1 (0%–45%): Essential Startup Assets First + Progressive Campus GLBs
+      // =========================================================================
+      this._reportPreload(4, STAGE_1_LABEL);
+      await this._yieldPreloadFrame();
 
     // Essential Batch 1 (Hero Pelican, Priority G-Bike V9, TPU 8i, Spin Studio Interior V5)
     const [
@@ -972,52 +975,69 @@ export class DemoCore {
       });
     }
 
+    const safeAttach = (label, fn) => {
+      try {
+        return fn();
+      } catch (attachErr) {
+        console.warn(`[DemoCore] Non-fatal GLB attach error (${label}):`, attachErr);
+        return false;
+      }
+    };
+
     if (pelicanGlbScene) {
-      this.pelican.attachHeroGlb(pelicanGlbScene);
-      this.glbLoadedStatus.pelicanHero = true;
+      safeAttach("pelicanHero", () => {
+        this.pelican.attachHeroGlb(pelicanGlbScene);
+        this.glbLoadedStatus.pelicanHero = true;
+      });
     }
     if (priorityGbikeV9Scene) {
-      this.gbike.attachPriorityGbikeV9Glb?.(priorityGbikeV9Scene);
-      this.glbLoadedStatus.priorityGbikeV9 = true;
+      safeAttach("priorityGbikeV9", () => {
+        this.gbike.attachPriorityGbikeV9Glb?.(priorityGbikeV9Scene);
+        this.glbLoadedStatus.priorityGbikeV9 = true;
+      });
     }
     if (vehiclesV2Scene) {
-      if (typeof this.gbike.attachVehiclesV2Glb === "function") {
-        this.gbike.attachVehiclesV2Glb(vehiclesV2Scene);
-      } else {
-        this.gbike.attachCockpitPropsGlb?.(vehiclesV2Scene);
-      }
-      this.glbLoadedStatus.gbikeCockpitProps = true;
-      this.glbLoadedStatus.gbikeAndVehiclesV2 = true;
+      safeAttach("vehiclesV2", () => {
+        if (typeof this.gbike.attachVehiclesV2Glb === "function") {
+          this.gbike.attachVehiclesV2Glb(vehiclesV2Scene);
+        } else {
+          this.gbike.attachCockpitPropsGlb?.(vehiclesV2Scene);
+        }
+        this.glbLoadedStatus.gbikeCockpitProps = true;
+        this.glbLoadedStatus.gbikeAndVehiclesV2 = true;
+      });
     }
     // Attach portrait `TPU 8i` (`1:1.24`, cool brushed-silver `#C8CFD6` + deep-teal `#0F353C` + `2+8` champagne-gold silicon dies) FIRST
     if (tpu8iScene) {
-      if (this.world) {
-        this.world.dayEnvMap = this.dayEnvMap || null;
-        this.world.sunsetEnvMap = this.sunsetEnvMap || null;
-      }
-      const tpu8iTemplate = this.world.applyTpu8iV7Glb?.(tpu8iScene);
-      if (tpu8iTemplate && typeof this.gbike.attachBasketTpuTemplate === "function") {
-        this.gbike.attachBasketTpuTemplate(tpu8iTemplate);
-        if (Array.isArray(this.gbike.basketTpuInstancedBatches)) {
-          for (let bi = 0; bi < this.gbike.basketTpuInstancedBatches.length; bi++) {
-            const bInst = this.gbike.basketTpuInstancedBatches[bi];
-            bInst.name = `TPU_8i_Basket_Instanced_V7_${bi}`;
-            if (bInst.material) {
-              if (bInst.material.emissive) {
-                bInst.material.emissive.setHex(0x000000);
-                bInst.material.emissiveIntensity = 0.0;
+      safeAttach("tpu8i", () => {
+        if (this.world) {
+          this.world.dayEnvMap = this.dayEnvMap || null;
+          this.world.sunsetEnvMap = this.sunsetEnvMap || null;
+        }
+        const tpu8iTemplate = this.world.applyTpu8iV7Glb?.(tpu8iScene);
+        if (tpu8iTemplate && typeof this.gbike.attachBasketTpuTemplate === "function") {
+          this.gbike.attachBasketTpuTemplate(tpu8iTemplate);
+          if (Array.isArray(this.gbike.basketTpuInstancedBatches)) {
+            for (let bi = 0; bi < this.gbike.basketTpuInstancedBatches.length; bi++) {
+              const bInst = this.gbike.basketTpuInstancedBatches[bi];
+              bInst.name = `TPU_8i_Basket_Instanced_V7_${bi}`;
+              if (bInst.material) {
+                if (bInst.material.emissive) {
+                  bInst.material.emissive.setHex(0x000000);
+                  bInst.material.emissiveIntensity = 0.0;
+                }
+                if (this.dayEnvMap) {
+                  bInst.material.envMap = this.dayEnvMap;
+                  bInst.material.envMapIntensity = 0.96;
+                }
+                bInst.material.userData = bInst.material.userData || {};
+                bInst.material.userData.v7SkipWorldCohesion = true;
               }
-              if (this.dayEnvMap) {
-                bInst.material.envMap = this.dayEnvMap;
-                bInst.material.envMapIntensity = 0.96;
-              }
-              bInst.material.userData = bInst.material.userData || {};
-              bInst.material.userData.v7SkipWorldCohesion = true;
             }
           }
         }
-      }
-      this.glbLoadedStatus.tpu8iV7 = Boolean(tpu8iTemplate);
+        this.glbLoadedStatus.tpu8iV7 = Boolean(tpu8iTemplate);
+      });
     }
 
     if (
@@ -1026,72 +1046,92 @@ export class DemoCore {
       androidStatuesV2Scene ||
       landmarksV2Scene
     ) {
-      const tpuTemplate = this.campusWorld.attachLandmarkAndGamePropGlbs({
-        stanScene: null,
-        vehiclesV2Scene,
-        collectiblesV2Scene,
-        androidStatuesV2Scene,
-        landmarksV2Scene,
+      safeAttach("landmarksAndProps", () => {
+        const tpuTemplate = this.campusWorld.attachLandmarkAndGamePropGlbs({
+          stanScene: null,
+          vehiclesV2Scene,
+          collectiblesV2Scene,
+          androidStatuesV2Scene,
+          landmarksV2Scene,
+        });
+        if (!this.glbLoadedStatus.tpu8iV7 && tpuTemplate && typeof this.gbike.attachBasketTpuTemplate === "function") {
+          this.gbike.attachBasketTpuTemplate(tpuTemplate);
+        }
+        this.glbLoadedStatus.androidBugdroid = Boolean(androidStatuesV2Scene);
+        this.glbLoadedStatus.campusGameProps = Boolean(vehiclesV2Scene && collectiblesV2Scene);
+        this.glbLoadedStatus.campusCollectiblesV2 = Boolean(collectiblesV2Scene);
+        this.glbLoadedStatus.androidStatuesV2 = Boolean(androidStatuesV2Scene);
+        this.glbLoadedStatus.campusLandmarksV2 = Boolean(landmarksV2Scene);
       });
-      if (!this.glbLoadedStatus.tpu8iV7 && tpuTemplate && typeof this.gbike.attachBasketTpuTemplate === "function") {
-        this.gbike.attachBasketTpuTemplate(tpuTemplate);
-      }
-      this.glbLoadedStatus.androidBugdroid = Boolean(androidStatuesV2Scene);
-      this.glbLoadedStatus.campusGameProps = Boolean(vehiclesV2Scene && collectiblesV2Scene);
-      this.glbLoadedStatus.campusCollectiblesV2 = Boolean(collectiblesV2Scene);
-      this.glbLoadedStatus.androidStatuesV2 = Boolean(androidStatuesV2Scene);
-      this.glbLoadedStatus.campusLandmarksV2 = Boolean(landmarksV2Scene);
     }
 
     await this._yieldPreloadFrame();
 
     if (treesV4Scene) {
-      this.world.applyTreesV4Glb?.(treesV4Scene);
-      this.glbLoadedStatus.treesV4 = true;
+      safeAttach("treesV4", () => {
+        this.world.applyTreesV4Glb?.(treesV4Scene);
+        this.glbLoadedStatus.treesV4 = true;
+      });
     }
     if (propsV4Scene) {
       this.world._propsV4Scene = propsV4Scene;
     }
     this.world._hasV6Planters = Boolean(propsBridgeV6Scene);
     if (campusEnvV3Scene) {
-      this.world.applyCampusEnvironmentV3Glb?.(campusEnvV3Scene);
-      this.glbLoadedStatus.campusEnvironmentV3 = true;
+      safeAttach("campusEnvV3", () => {
+        this.world.applyCampusEnvironmentV3Glb?.(campusEnvV3Scene);
+        this.glbLoadedStatus.campusEnvironmentV3 = true;
+      });
     }
     if (propsV4Scene) {
-      this.world.applyPropsAndFinaleV4Glb?.(propsV4Scene);
-      this.glbLoadedStatus.propsAndFinaleV4 = true;
+      safeAttach("propsV4", () => {
+        this.world.applyPropsAndFinaleV4Glb?.(propsV4Scene);
+        this.glbLoadedStatus.propsAndFinaleV4 = true;
+      });
     }
     if (waymoV4Scene) {
-      const okW4 = this.world.applyWaymoGen6V4Glb?.(waymoV4Scene);
-      this.glbLoadedStatus.waymoGen6V4 = Boolean(okW4);
-      this.glbLoadedStatus.waymoGen6V3 = Boolean(okW4);
+      safeAttach("waymoV4", () => {
+        const okW4 = this.world.applyWaymoGen6V4Glb?.(waymoV4Scene);
+        this.glbLoadedStatus.waymoGen6V4 = Boolean(okW4);
+        this.glbLoadedStatus.waymoGen6V3 = Boolean(okW4);
+      });
     }
 
     await this._yieldPreloadFrame();
 
     // Attach V5 Luxury Spin Studio (`59 / AA` flat hex dumbbell, `0` water bottles), Articulated Stan T-Rex + Cafe Sets, and Horizon/Pavilions/Berms!
     if (gymV5Scene) {
-      const okG5 = this.world.applyGymInteriorV5Glb?.(gymV5Scene);
-      this.glbLoadedStatus.gymInteriorV5 = Boolean(okG5);
-      this.glbLoadedStatus.gymInteriorV4 = Boolean(okG5);
+      safeAttach("gymV5", () => {
+        const okG5 = this.world.applyGymInteriorV5Glb?.(gymV5Scene);
+        this.glbLoadedStatus.gymInteriorV5 = Boolean(okG5);
+        this.glbLoadedStatus.gymInteriorV4 = Boolean(okG5);
+      });
     }
     if (stanV5Scene) {
-      const okS5 = this.world.applyStanTrexV5Glb?.(stanV5Scene);
-      this.glbLoadedStatus.stanTrexV5 = Boolean(okS5);
-      this.glbLoadedStatus.stanTrex = Boolean(okS5);
+      safeAttach("stanV5", () => {
+        const okS5 = this.world.applyStanTrexV5Glb?.(stanV5Scene);
+        this.glbLoadedStatus.stanTrexV5 = Boolean(okS5);
+        this.glbLoadedStatus.stanTrex = Boolean(okS5);
+      });
     }
     if (archV5Scene) {
-      const okA5 = this.world.applyCampusHorizonArchV5Glb?.(archV5Scene);
-      this.glbLoadedStatus.campusHorizonArchV5 = Boolean(okA5);
+      safeAttach("archV5", () => {
+        const okA5 = this.world.applyCampusHorizonArchV5Glb?.(archV5Scene);
+        this.glbLoadedStatus.campusHorizonArchV5 = Boolean(okA5);
+      });
     }
 
     if (canopyV6Scene) {
-      const okC6 = this.world.applyGradientCanopyV6Glb?.(canopyV6Scene);
-      this.glbLoadedStatus.gradientCanopyV6 = Boolean(okC6);
+      safeAttach("canopyV6", () => {
+        const okC6 = this.world.applyGradientCanopyV6Glb?.(canopyV6Scene);
+        this.glbLoadedStatus.gradientCanopyV6 = Boolean(okC6);
+      });
     }
     if (propsBridgeV6Scene) {
-      const okP6 = this.world.applyPropsAndBridgeV6Glb?.(propsBridgeV6Scene);
-      this.glbLoadedStatus.propsAndBridgeV6 = Boolean(okP6);
+      safeAttach("propsBridgeV6", () => {
+        const okP6 = this.world.applyPropsAndBridgeV6Glb?.(propsBridgeV6Scene);
+        this.glbLoadedStatus.propsAndBridgeV6 = Boolean(okP6);
+      });
     }
 
     this._reportPreload(43, STAGE_1_LABEL);
@@ -1794,76 +1834,94 @@ export class DemoCore {
     }
 
     // Bake initial `t = 0.000s` Two-Tier shadow maps & render clean Frame 0 behind opaque `#campus-preloader`
-    if (!savedSkipDraw) {
-      if (this.v5Lighting) {
-        this.v5Lighting.updateTwoTierShadows?.({
-          heroPos: resetSnap,
-          camera: this.camera,
-          forceStaticRebuild: true,
-          isSoftwareRenderer: Boolean(this.isSoftwareRenderer || this.isCaptureSwCpu),
-        });
+    if (!savedSkipDraw && !this._contextLost) {
+      try {
+        if (this.v5Lighting) {
+          this.v5Lighting.updateTwoTierShadows?.({
+            heroPos: resetSnap,
+            camera: this.camera,
+            forceStaticRebuild: true,
+            isSoftwareRenderer: Boolean(this.isSoftwareRenderer || this.isCaptureSwCpu),
+          });
+        }
+        this.renderer.shadowMap.needsUpdate = true;
+        this.renderer.render(this.scene, this.camera);
+        this._frame0Rendered = true;
+        this._wasSkippingDraw = false;
+      } catch (renderErr) {
+        console.warn("[DemoCore] Frame-0 render warning:", renderErr);
       }
-      this.renderer.shadowMap.needsUpdate = true;
-      this.renderer.render(this.scene, this.camera);
-      this._frame0Rendered = true;
-      this._wasSkippingDraw = false;
     } else {
       this._wasSkippingDraw = true;
     }
 
     // Record baseline WebGL program count AFTER full Stage 3 pre-warm + Frame 0 shadow/scene render!
-    this._postWarmupProgramCount = this.renderer.info.programs?.length || 0;
+    this._postWarmupProgramCount = this.renderer?.info?.programs?.length || 0;
     this.preloadTelemetry.programsAfterWarmup = this._postWarmupProgramCount;
     this.preloadTelemetry.programsCompiledDuringTour = 0;
     this._reportPreload(92, STAGE_3_LABEL);
     await this._yieldPreloadFrame();
 
     // =========================================================================
-    // STAGE 4 (92%–100%): Pre-Build / Decode Procedural & Lyria WebAudio Buffers
+    // STAGE 4 (92%–100%): Non-Blocking Procedural & Lyria WebAudio Preparation
     // =========================================================================
     this._reportPreload(96, STAGE_4_LABEL);
     await this._yieldPreloadFrame();
     if (this.audio && typeof this.audio.prewarmBuffers === "function") {
-      const isAutomatedHarnessBoot = Boolean(
-        typeof window !== "undefined" && (window.__virtualClock || window.__externalClock)
-      );
-      if (isAutomatedHarnessBoot) {
-        await this.audio.prewarmBuffers();
-      } else {
-        // Non-blocking progressive audio decode on interactive mobile/desktop so 96% -> 100% NEVER freezes!
-        await Promise.race([
-          Promise.resolve(this.audio.prewarmBuffers()).catch(() => {}),
-          new Promise((r) => nativeWait(r, 65)),
-        ]);
-      }
-    }
-
-    this._assetsFinalized = true;
-    this.isReady = true;
-    this.preloadTelemetry.completed = true;
-    this._reportPreload(100, STAGE_4_LABEL);
-
-    const summary = deriveTourSummary();
-    bus.emit(DEMO_EVENTS.STATS_UPDATED, {
-      elapsedTime: state.elapsedTime,
-      sequenceTime: state.sequenceTime,
-      clipLocalTime: state.clipLocalTime,
-      activeClipId: state.activeClipId,
-      activeClipIndex: state.activeClipIndex,
-      frameCount: state.frameCount,
-      fps: state.fps,
-      kinematics: state.kinematics,
-      summary,
-    });
-
-    this._syncCtTelemetry(false);
-    if (typeof this.onPreloadComplete === "function") {
       try {
-        this.onPreloadComplete(this.preloadTelemetry);
-      } catch (_err) {}
+        const isAutomatedHarnessBoot = Boolean(
+          typeof window !== "undefined" && (window.__virtualClock || window.__externalClock)
+        );
+        if (isAutomatedHarnessBoot) {
+          await Promise.race([
+            Promise.resolve(this.audio.prewarmBuffers()).catch(() => false),
+            new Promise((r) => nativeWait(r, 1500)),
+          ]);
+        } else {
+          // Completely non-blocking audio prep on mobile/desktop so 96% -> 100% NEVER hangs
+          await Promise.race([
+            Promise.resolve(this.audio.prewarmBuffers()).catch(() => false),
+            new Promise((r) => nativeWait(r, 40)),
+          ]);
+        }
+      } catch (_audioErr) {}
     }
-    if (typeof window !== "undefined" && !this._deferDemoReadyToMain) {
-      window.__DEMO_READY__ = true;
+    } catch (preloadErr) {
+      console.error("[DemoCore] Preload sequence warning (recovering safely):", preloadErr);
+    } finally {
+      _glbBufferCache.clear();
+      this._assetsFinalized = true;
+      this.isReady = true;
+      this.preloadTelemetry.completed = true;
+      this._reportPreload(100, STAGE_4_LABEL);
+
+      try {
+        const summary = deriveTourSummary();
+        bus.emit(DEMO_EVENTS.STATS_UPDATED, {
+          elapsedTime: state.elapsedTime,
+          sequenceTime: state.sequenceTime,
+          clipLocalTime: state.clipLocalTime,
+          activeClipId: state.activeClipId,
+          activeClipIndex: state.activeClipIndex,
+          frameCount: state.frameCount,
+          fps: state.fps,
+          kinematics: state.kinematics,
+          summary,
+        });
+      } catch (_emitErr) {}
+
+      try {
+        this._syncCtTelemetry(false);
+      } catch (_telErr) {}
+
+      if (typeof this.onPreloadComplete === "function") {
+        try {
+          this.onPreloadComplete(this.preloadTelemetry);
+        } catch (_err) {}
+      }
+      if (typeof window !== "undefined" && !this._deferDemoReadyToMain) {
+        window.__DEMO_READY__ = true;
+      }
     }
     return true;
   }
@@ -2242,24 +2300,35 @@ export class DemoCore {
       this._userDraggingOrbit = false;
     });
 
+    this._onCanvasWheel = () => {
+      if (!(typeof window !== "undefined" && window.__externalClock === true)) {
+        if (state.cameraMode !== "orbit") {
+          dispatchAction(DEMO_ACTIONS.SET_CAMERA, { cameraMode: "orbit" });
+        }
+        dispatchAction(DEMO_ACTIONS.USER_ACTIVITY, { source: "orbit_wheel" });
+      }
+    };
+    this._onContextLost = (e) => {
+      if (e && typeof e.preventDefault === "function") e.preventDefault();
+      this._contextLost = true;
+    };
+    this._onContextRestored = () => {
+      this._contextLost = false;
+      this.resize();
+      if (this.renderer?.shadowMap) {
+        this.renderer.shadowMap.needsUpdate = true;
+      }
+    };
     if (this.canvas && typeof this.canvas.addEventListener === "function") {
-      this.canvas.addEventListener(
-        "wheel",
-        () => {
-          if (!(typeof window !== "undefined" && window.__externalClock === true)) {
-            if (state.cameraMode !== "orbit") {
-              dispatchAction(DEMO_ACTIONS.SET_CAMERA, { cameraMode: "orbit" });
-            }
-            dispatchAction(DEMO_ACTIONS.USER_ACTIVITY, { source: "orbit_wheel" });
-          }
-        },
-        { passive: true }
-      );
+      this.canvas.addEventListener("wheel", this._onCanvasWheel, { passive: true });
+      this.canvas.addEventListener("webglcontextlost", this._onContextLost, false);
+      this.canvas.addEventListener("webglcontextrestored", this._onContextRestored, false);
     }
 
+    this._onWindowResize = () => this.resize();
     this.resize();
     if (typeof window !== "undefined") {
-      window.addEventListener("resize", () => this.resize());
+      window.addEventListener("resize", this._onWindowResize);
     }
   }
 
@@ -3761,6 +3830,10 @@ diffuseColor.a *= vPuffAlpha;`
     const shorelineSkid = Math.max(0.0, Number(snap.shorelineSkidIntensity) || 0.0);
     const totalIntensity = Math.max(standSmoke, peelBurst, shorelineSkid);
 
+    if (totalIntensity <= 0.02 && this._burnoutActivePuffs === 0) {
+      return;
+    }
+
     if (totalIntensity > 0.02) {
       const isWhipSkidOnly = shorelineSkid > 0.02 && standSmoke <= 0.02 && peelBurst <= 0.02;
       const pScale =
@@ -4930,7 +5003,7 @@ diffuseColor.a *= vPuffAlpha;`
       summary,
     });
 
-    if (!(typeof window !== "undefined" && window.__CAPTURE_SKIP_DRAW__ === true)) {
+    if (!this._contextLost && !(typeof window !== "undefined" && window.__CAPTURE_SKIP_DRAW__ === true)) {
       const wasStaticRebuild = Boolean(this.v5Lighting?.sunLight?.shadow?.needsUpdate);
       this.renderer.render(this.scene, this.camera);
       this._syncCtTelemetry(wasStaticRebuild);
@@ -5851,14 +5924,16 @@ diffuseColor.a *= vPuffAlpha;`
     }
 
     const skipDrawNow = Boolean(
-      typeof window !== "undefined" && window.__CAPTURE_SKIP_DRAW__ === true
+      this._contextLost ||
+        (typeof window !== "undefined" && window.__CAPTURE_SKIP_DRAW__ === true)
     );
     if (skipDrawNow) {
       this._wasSkippingDraw = true;
       this.camera.updateMatrixWorld(true);
     } else {
-      // 4. Matrix Invalidation Guarantee (ensures zero stale matrices!)
-      this.scene.updateMatrixWorld(true);
+      // 4. Update dirty world matrices while honoring static objects' `matrixAutoUpdate = false`
+      this.scene.updateMatrixWorld(false);
+      this.heroAnchor.updateMatrixWorld(true);
       this.camera.updateMatrixWorld(true);
     }
 
@@ -6060,5 +6135,74 @@ diffuseColor.a *= vPuffAlpha;`
       },
       telemetrySummary: deriveTourSummary(),
     };
+  }
+
+  /**
+   * Releases WebGL resources, scene geometries/materials/textures, event listeners, and audio on teardown.
+   */
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+
+    if (typeof window !== "undefined" && this._onWindowResize) {
+      window.removeEventListener("resize", this._onWindowResize);
+    }
+    if (this.canvas) {
+      if (this._onCanvasWheel) this.canvas.removeEventListener("wheel", this._onCanvasWheel);
+      if (this._onContextLost) this.canvas.removeEventListener("webglcontextlost", this._onContextLost);
+      if (this._onContextRestored) this.canvas.removeEventListener("webglcontextrestored", this._onContextRestored);
+    }
+
+    try {
+      this.orbitControls?.dispose?.();
+    } catch (_err) {}
+    try {
+      this.audio?.dispose?.();
+    } catch (_err) {}
+    try {
+      this.postFX?.dispose?.();
+    } catch (_err) {}
+    try {
+      this.dayEnvMap?.dispose?.();
+      this.sunsetEnvMap?.dispose?.();
+    } catch (_err) {}
+
+    if (this.scene) {
+      const disposedGeoms = new Set();
+      const disposedMats = new Set();
+      const disposedTex = new Set();
+      this.scene.traverse((obj) => {
+        if (obj.geometry && !disposedGeoms.has(obj.geometry)) {
+          disposedGeoms.add(obj.geometry);
+          try {
+            obj.geometry.dispose();
+          } catch (_e) {}
+        }
+        if (obj.material) {
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const m of mats) {
+            if (!m || disposedMats.has(m)) continue;
+            disposedMats.add(m);
+            for (const key of Object.keys(m)) {
+              const val = m[key];
+              if (val && val.isTexture && !disposedTex.has(val)) {
+                disposedTex.add(val);
+                try {
+                  val.dispose();
+                } catch (_e) {}
+              }
+            }
+            try {
+              m.dispose();
+            } catch (_e) {}
+          }
+        }
+      });
+    }
+
+    _glbBufferCache.clear();
+    try {
+      this.renderer?.dispose?.();
+    } catch (_err) {}
   }
 }

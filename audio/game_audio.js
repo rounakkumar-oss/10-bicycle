@@ -228,12 +228,15 @@ export class GameAudioEngine {
       uiClick: 0,
     };
 
-    // Synchronously initialize WebAudio graph + real `MediaStreamAudioDestinationNode` (`this.streamDest`)
-    // on Frame 0 so `window.__audioStreamDestination` is immediately available for `--audio` capture!
+    // Only synchronously build WebAudio graph on Frame 0 when an explicit/offline context
+    // is injected or audio starts enabled; on mobile interactive boot, initialize lazily
+    // so startup NEVER blocks or fails inside "Tuning soundtrack & campus acoustics…"
     this.streamDest = null;
     this._persistentStreamWrapper = null;
     this._persistentStream = null;
-    this._ensureContext();
+    if (this._injectedCtx || this.enabled) {
+      this._ensureContext();
+    }
     if (typeof window !== "undefined") {
       if (this.streamDest) {
         window.__audioStreamDestination = this.streamDest;
@@ -311,10 +314,10 @@ export class GameAudioEngine {
   }
 
   _bindUserGestureUnlock() {
-    if (this._gestureUnlockBound || typeof window === "undefined") return;
+    if (this._gestureUnlockBound || typeof window === "undefined" || typeof window.addEventListener !== "function") return;
     this._gestureUnlockBound = true;
     this._onGestureHandler = () => {
-      if (this._disposed) return;
+      if (this._disposed || !this.enabled) return;
       this.prewarmAndResume();
     };
     window.addEventListener("pointerdown", this._onGestureHandler, this._gestureOpts);
@@ -768,8 +771,17 @@ export class GameAudioEngine {
         burnoutSrc,
       ];
 
-      // Kick off asynchronous Base64 Lyria 3.5 MP3 decode & seamless 1.000x loop playback
-      this.lyriaReadyPromise = this._decodeAndStartLyria();
+      // Kick off asynchronous Base64 Lyria 3.5 MP3 decode only when enabled or inside OfflineAudioContext
+      if (this.enabled || isOfflineAudioContext(this.ctx)) {
+        this.lyriaReadyPromise = this._decodeAndStartLyria();
+      } else if (
+        this.ctx &&
+        !isOfflineAudioContext(this.ctx) &&
+        this.ctx.state === "running" &&
+        typeof this.ctx.suspend === "function"
+      ) {
+        this.ctx.suspend().catch(() => {});
+      }
 
       return true;
     } catch (_err) {
@@ -915,18 +927,30 @@ export class GameAudioEngine {
   async prewarmBuffers() {
     if (this._disposed) return false;
     try {
+      // On interactive startup while muted (`!this.enabled` and not offline/virtual clock),
+      // skip synchronous AudioContext creation & MP3 decode so preloader never blocks at 100%;
+      // audio initializes cleanly on first user enable/gesture.
+      const isOffline = Boolean(this._injectedCtx && isOfflineAudioContext(this._injectedCtx));
+      const isAutomatedHarness =
+        typeof window !== "undefined" && Boolean(window.__virtualClock || window.__externalClock);
+      if (!isOffline && !isAutomatedHarness && !this.enabled) {
+        return true;
+      }
       if (!this.ctx) {
         this._ensureContext();
       }
       if (this.masterGain && !this.enabled) {
         this.masterGain.gain.value = 0.0;
       }
-      if (this.lyriaReadyPromise) {
+      if (this.ctx && !this.lyriaSource && !this.lyriaReadyPromise && (this.enabled || isOffline)) {
+        this.lyriaReadyPromise = this._decodeAndStartLyria();
+      }
+      if (this.lyriaReadyPromise && (isOffline || isAutomatedHarness)) {
         const waitFn =
           (typeof window !== "undefined" && window.__nativeSetTimeout) || setTimeout;
         await Promise.race([
           Promise.resolve(this.lyriaReadyPromise).catch(() => false),
-          new Promise((resolve) => waitFn(() => resolve(false), 1200)),
+          new Promise((resolve) => waitFn(() => resolve(false), 600)),
         ]);
       }
       return Boolean(this.ctx);
@@ -941,7 +965,11 @@ export class GameAudioEngine {
     if (this.masterGain && !this.enabled) {
       this.masterGain.gain.value = 0.0;
     }
+    if (this.enabled && this.ctx && !this.lyriaSource && !this._lyriaDecoding) {
+      this.lyriaReadyPromise = this._decodeAndStartLyria();
+    }
     if (
+      this.enabled &&
       this.ctx &&
       !isOfflineAudioContext(this.ctx) &&
       this.ctx.state === "suspended" &&
@@ -954,6 +982,9 @@ export class GameAudioEngine {
   ensureResumed() {
     if (!this.enabled || this._disposed) return;
     if (!this.ctx) this._ensureContext();
+    if (this.ctx && !this.lyriaSource && !this._lyriaDecoding) {
+      this.lyriaReadyPromise = this._decodeAndStartLyria();
+    }
     if (
       this.ctx &&
       !isOfflineAudioContext(this.ctx) &&
@@ -975,6 +1006,14 @@ export class GameAudioEngine {
     if (this.masterGain && this.ctx) {
       const now = this.ctx.currentTime;
       setTargetAt(this.masterGain.gain, this.enabled ? 0.92 : 0.0, now, 0.028);
+      if (
+        !this.enabled &&
+        !isOfflineAudioContext(this.ctx) &&
+        this.ctx.state === "running" &&
+        typeof this.ctx.suspend === "function"
+      ) {
+        this.ctx.suspend().catch(() => {});
+      }
     }
   }
 
@@ -1033,7 +1072,7 @@ export class GameAudioEngine {
       this._playSlowMoApexLayer();
     }
 
-    if (!this.ctx || !this.lyriaFilter || !this.lyriaGain) return;
+    if (!this.enabled || !this.ctx || !this.lyriaFilter || !this.lyriaGain) return;
     const now = this.ctx.currentTime;
 
     if (now >= this._bloomEndAudioTime) {
@@ -3340,7 +3379,12 @@ export class GameAudioEngine {
     }
     this._busListeners.length = 0;
 
-    if (this._gestureUnlockBound && typeof window !== "undefined" && this._onGestureHandler) {
+    if (
+      this._gestureUnlockBound &&
+      typeof window !== "undefined" &&
+      typeof window.removeEventListener === "function" &&
+      this._onGestureHandler
+    ) {
       window.removeEventListener("pointerdown", this._onGestureHandler, this._gestureOpts);
       window.removeEventListener("touchstart", this._onGestureHandler, this._gestureOpts);
       window.removeEventListener("keydown", this._onGestureHandler, this._gestureOpts);
@@ -3368,5 +3412,17 @@ export class GameAudioEngine {
     }
     this._continuousSources.length = 0;
     this._dedupeAtMs.clear();
+
+    if (
+      this.ctx &&
+      this.ctx !== this._injectedCtx &&
+      !isOfflineAudioContext(this.ctx) &&
+      typeof this.ctx.close === "function"
+    ) {
+      try {
+        this.ctx.close().catch(() => {});
+      } catch (_err) {}
+    }
+    this.ctx = null;
   }
 }

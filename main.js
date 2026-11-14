@@ -6,6 +6,7 @@
 
 import { DemoCore } from "./core.js";
 import { initUI } from "./ui.js";
+import { initGameSettingsAndTouch } from "./game/settings_and_touch.js";
 import {
   DEFAULT_GBIKE_VARIANT,
   DEMO_ACTIONS,
@@ -74,7 +75,7 @@ if (typeof window !== "undefined") {
 
 let core = null;
 let uiController = null;
-let downloadHubController = null;
+let settingsHubController = null;
 let rafId = null;
 let lastRafTimestamp = null;
 let expectedNextFrameIndex = 0;
@@ -424,15 +425,15 @@ function attachManualActivityAndKeyboardListeners(canvas) {
 
     if (code === "KeyG") {
       state.idleSec = 0.0;
-      const dlModal = typeof document !== "undefined" ? document.getElementById("download-apk-modal") : null;
-      const wantOpen = dlModal ? dlModal.hasAttribute("hidden") : true;
-      downloadHubController?.setModalOpen?.(wantOpen);
+      const settingsModal = typeof document !== "undefined" ? document.getElementById("game-settings-modal") : null;
+      const wantOpen = settingsModal ? settingsModal.hasAttribute("hidden") : true;
+      settingsHubController?.setModalOpen?.(wantOpen);
       return;
     }
 
     if (code === "Escape") {
       uiController?.setCamPopoverOpen?.(false);
-      downloadHubController?.setModalOpen?.(false);
+      settingsHubController?.setModalOpen?.(false);
       if (state.xrayEnabled) {
         dispatchAction(DEMO_ACTIONS.TOGGLE_XRAY, { enabled: false });
       }
@@ -583,7 +584,7 @@ function boot() {
     window.__PELICAN_APP__ = core;
   }
   uiController = initUI();
-  downloadHubController = initDownloadAndMobileSystem();
+  settingsHubController = initGameSettingsAndTouch();
 
   bus.addEventListener(DEMO_EVENTS.QUALITY_CHANGED, (e) => {
     const tier = e.detail?.qualityTier || state.qualityTier;
@@ -710,46 +711,52 @@ function boot() {
     new Promise((r) => nativeWait(r, readyTimeoutMs)),
   ]).finally(() => {
     isAssetsReady = true;
-    const isHarnessClock = typeof window !== "undefined" && Boolean(window.__virtualClock);
-    if (core && lastAdvancedFrameIndex < 0 && !rafId && (!isHarnessClock || flags.startOffsetSec !== null)) {
-      if (flags.startOffsetSec !== null) {
-        seekDeterministicallyToTime(flags.startOffsetSec);
-      } else if (!core._frame0Rendered) {
+    try {
+      const isHarnessClock = typeof window !== "undefined" && Boolean(window.__virtualClock);
+      if (core && lastAdvancedFrameIndex < 0 && !rafId && (!isHarnessClock || flags.startOffsetSec !== null)) {
+        if (flags.startOffsetSec !== null) {
+          seekDeterministicallyToTime(flags.startOffsetSec);
+        } else if (!core._frame0Rendered) {
+          if (typeof core.renderAtTime === "function") {
+            core.renderAtTime(0.0);
+          } else {
+            core.advanceFrame(0, 0, 0);
+          }
+        }
+      } else if (core && lastAdvancedFrameIndex < 0 && state.elapsedTime === 0 && !isHarnessClock && !core._frame0Rendered) {
         if (typeof core.renderAtTime === "function") {
           core.renderAtTime(0.0);
         } else {
           core.advanceFrame(0, 0, 0);
         }
       }
-    } else if (core && lastAdvancedFrameIndex < 0 && state.elapsedTime === 0 && !isHarnessClock && !core._frame0Rendered) {
-      if (typeof core.renderAtTime === "function") {
-        core.renderAtTime(0.0);
-      } else {
-        core.advanceFrame(0, 0, 0);
-      }
+      if (uiController) uiController.syncAll();
+      flushActiveDomAnimations();
+    } catch (finalizeErr) {
+      console.error("[boot] Frame-0 finalize warning (starting game anyway):", finalizeErr);
     }
-    if (uiController) uiController.syncAll();
-    flushActiveDomAnimations();
 
-    syncPreloaderDom({ pct: 100 });
-    if (typeof window !== "undefined") {
-      const coreTel = core?.preloadTelemetry;
-      window.__PRELOADER_TELEMETRY__ = {
-        completed: true,
-        stagesVisited: coreTel?.stagesVisited?.length
-          ? [...coreTel.stagesVisited]
-          : [
-              "Loading Mountain View campus & 3D assets…",
-              "Preparing 2K campus materials & lighting…",
-              "Warming up golden-hour shaders & shadows…",
-              "Tuning soundtrack & campus acoustics…",
-            ],
-        maxProgressPct: 100,
-        programsAfterWarmup:
-          coreTel?.programsAfterWarmup ?? (core?.renderer?.info?.programs?.length || 0),
-        programsCompiledDuringTour: coreTel?.programsCompiledDuringTour ?? 0,
-      };
-    }
+    try {
+      syncPreloaderDom({ pct: 100 });
+      if (typeof window !== "undefined") {
+        const coreTel = core?.preloadTelemetry;
+        window.__PRELOADER_TELEMETRY__ = {
+          completed: true,
+          stagesVisited: coreTel?.stagesVisited?.length
+            ? [...coreTel.stagesVisited]
+            : [
+                "Loading Mountain View campus & 3D assets…",
+                "Preparing 2K campus materials & lighting…",
+                "Warming up golden-hour shaders & shadows…",
+                "Tuning soundtrack & campus acoustics…",
+              ],
+          maxProgressPct: 100,
+          programsAfterWarmup:
+            coreTel?.programsAfterWarmup ?? (core?.renderer?.info?.programs?.length || 0),
+          programsCompiledDuringTour: coreTel?.programsCompiledDuringTour ?? 0,
+        };
+      }
+    } catch (_telErr) {}
 
     const isAutomatedHarness =
       Boolean(
